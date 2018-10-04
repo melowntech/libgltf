@@ -47,7 +47,12 @@ struct Texture {
     typedef std::vector<Texture> list;
 };
 
-struct UriImage {
+struct InlineImage {
+    std::vector<unsigned char> data;
+    std::string mimeType;
+};
+
+struct ReferencedImage {
     std::string uri;
 };
 
@@ -58,7 +63,7 @@ struct BufferViewImage {
     BufferViewImage(Index bufferView) : bufferView(bufferView) {}
 };
 
-typedef boost::variant<UriImage, BufferViewImage> Image;
+typedef boost::variant<InlineImage, ReferencedImage, BufferViewImage> Image;
 typedef std::vector<Image> Images;
 
 struct Assets {
