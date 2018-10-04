@@ -11,6 +11,19 @@ namespace gltf {
 namespace detail {
 
 template <typename T>
+void build(Json::Value &object, const T &value);
+
+template <typename T>
+void build(Json::Value &object, const char *name
+           , const boost::optional<T> &value);
+
+template <typename T>
+void build(Json::Value &value, const std::vector<T> &list);
+
+template <typename T>
+void build(Json::Value &object, const char *name, const std::vector<T> &list);
+
+template <typename T>
 void build(Json::Value &object, const T &value)
 {
     object = value;
@@ -58,10 +71,17 @@ void build(Json::Value &value, const Node &node)
     build(value, "mesh", node.mesh);
 }
 
+void build(Json::Value &value, const Primitive &primitive)
+{
+    value = Json::objectValue;
+    (void) primitive;
+}
+
 void build(Json::Value &value, const Mesh &mesh)
 {
     value = Json::objectValue;
-    (void) mesh;
+    build(value, "name", mesh.name);
+    build(value, "primitives", mesh.primitives);
 }
 
 void build(Json::Value &value, const Texture &texture)
@@ -71,10 +91,10 @@ void build(Json::Value &value, const Texture &texture)
     value["source"] = texture.source;
 }
 
-
 void build(Json::Value &value, const Image &image)
 {
     struct BuildImage : public boost::static_visitor<void> {
+        Json::Value &value;
         BuildImage(Json::Value &value) : value(value = Json::objectValue) {}
 
         void operator()(const InlineImage &image) {
@@ -92,8 +112,6 @@ void build(Json::Value &value, const Image &image)
             value["bufferView"] = image.bufferView;
             value["mimeType"] = image.mimeType;
         }
-
-        Json::Value &value;
     } bi(value);
     boost::apply_visitor(bi, image);
 }
@@ -105,6 +123,13 @@ void build(Json::Value &value, const std::vector<T> &list)
     for (const auto &element : list) {
         build(value.append({}), element);
     }
+}
+
+template <typename T>
+void build(Json::Value &object, const char *name, const std::vector<T> &list)
+{
+    auto &value(object[name] = Json::arrayValue);
+    for (const auto &element : list) { build(value.append({}), element); }
 }
 
 void build(Json::Value &value, const Assets &assets)

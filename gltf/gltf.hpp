@@ -14,16 +14,17 @@ namespace gltf {
 typedef int Index;
 typedef std::vector<int> Indices;
 typedef boost::optional<Index> OptIndex;
+typedef boost::optional<std::string> OptString;
 
 struct Scene {
-    boost::optional<std::string> name;
+    OptString name;
     Indices nodes;
 
     typedef std::vector<Scene> list;
 };
 
 struct Node {
-    boost::optional<std::string> name;
+    OptString name;
     OptIndex camera;
     Indices children;
     boost::optional<math::Matrix4> matrix; // serialize as column major!
@@ -32,7 +33,14 @@ struct Node {
     typedef std::vector<Node> list;
 };
 
+struct Primitive {
+    typedef std::vector<Primitive> list;
+};
+
 struct Mesh {
+    OptString name;
+    Primitive::list primitives;
+
     typedef std::vector<Mesh> list;
 };
 
