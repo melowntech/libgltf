@@ -1,5 +1,8 @@
+#include <boost/lexical_cast.hpp>
+
 #include "utility/base64.hpp"
 #include "utility/streams.hpp"
+#include "utility/format.hpp"
 
 #include "jsoncpp/as.hpp"
 #include "jsoncpp/io.hpp"
@@ -11,7 +14,8 @@ namespace gltf {
 namespace detail {
 
 template <typename T>
-void build(Json::Value &object, const T &value);
+typename std::enable_if<!std::is_enum<T>::value, void>::type
+build(Json::Value &object, const T &value);
 
 template <typename T>
 void build(Json::Value &object, const char *name
@@ -22,12 +26,6 @@ void build(Json::Value &value, const std::vector<T> &list);
 
 template <typename T>
 void build(Json::Value &object, const char *name, const std::vector<T> &list);
-
-template <typename T>
-void build(Json::Value &object, const T &value)
-{
-    object = value;
-}
 
 void build(Json::Value &object, const math::Matrix4 &matrix)
 {
@@ -47,11 +45,47 @@ void build(Json::Value &value, const char *name, const Indices &indices)
     for (auto index : indices) { list.append(index); }
 }
 
-template <typename T>
-void build(Json::Value &object, const char *name
-         , const boost::optional<T> &value)
+void build(Json::Value &value, const Version &version)
 {
-    if (value) { build(object[name], *value); }
+    value = utility::format("%d.%d", version.major, version.minor);
+}
+
+void build(Json::Value &value, const Asset &asset)
+{
+    build(value, "copyright", asset.copyright);
+    build(value, "generator", asset.generator);
+    build(value["version"], asset.version);
+    build(value, "minVersion", asset.minVersion);
+}
+
+void build(Json::Value &value, const Buffer &buffer)
+{
+    value = Json::objectValue;
+    build(value, "uri", buffer.uri);
+    build(value["byteLength"], Json::UInt64(buffer.byteLength));
+    build(value, "name", buffer.name);
+}
+
+void build(Json::Value &value, const BufferView &bufferView)
+{
+    value = Json::objectValue;
+    build(value["buffer"], bufferView.buffer);
+    build(value["byteLength"], Json::UInt64(bufferView.byteLength));
+    build(value, "byteStride", bufferView.byteStride);
+    build(value, "target", bufferView.target);
+    build(value, "name", bufferView.name);
+}
+
+void build(Json::Value &value, const Accessor &accessor)
+{
+    value = Json::objectValue;
+    build(value, "bufferView", accessor.bufferView);
+    build(value, "offset", accessor.offset);
+    build(value["componentType"], static_cast<int>(accessor.componentType));
+    build(value, "normalized", accessor.normalized);
+    build(value["count"], Json::UInt64(accessor.count));
+    build(value["type"], boost::lexical_cast<std::string>(accessor.type));
+    build(value, "name", accessor.name);
 }
 
 void build(Json::Value &value, const Scene &scene)
@@ -74,7 +108,14 @@ void build(Json::Value &value, const Node &node)
 void build(Json::Value &value, const Primitive &primitive)
 {
     value = Json::objectValue;
-    (void) primitive;
+    auto &attributes(value["attributes"] = Json::objectValue);
+    for (const auto &pair : primitive.attributes) {
+        attributes[boost::lexical_cast<std::string>(pair.first)] = pair.second;
+    }
+    build(value, "indices", primitive.indices);
+    build(value, "material", primitive.material);
+    build(value, "mode", primitive.mode);
+    build(value, "targets", primitive.targets);
 }
 
 void build(Json::Value &value, const Mesh &mesh)
@@ -89,6 +130,7 @@ void build(Json::Value &value, const Texture &texture)
     value = Json::objectValue;
     value["sampler"] = texture.sampler;
     value["source"] = texture.source;
+    build(value, "name", texture.name);
 }
 
 void build(Json::Value &value, const Image &image)
@@ -116,6 +158,33 @@ void build(Json::Value &value, const Image &image)
     boost::apply_visitor(bi, image);
 }
 
+template<class T>
+typename std::enable_if<std::is_enum<T>::value, void>::type
+build(Json::Value &object, const T &value)
+{
+    object = static_cast<int>(value);
+}
+
+template <typename T>
+typename std::enable_if<!std::is_enum<T>::value, void>::type
+build(Json::Value &object, const T &value)
+{
+    object = value;
+}
+
+template <>
+void build<std::size_t>(Json::Value &object, const std::size_t &value)
+{
+    object = Json::UInt64(value);
+}
+
+template <typename T>
+void build(Json::Value &object, const char *name
+           , const boost::optional<T> &value)
+{
+    if (value) { build(object[name], *value); }
+}
+
 template <typename T>
 void build(Json::Value &value, const std::vector<T> &list)
 {
@@ -128,39 +197,45 @@ void build(Json::Value &value, const std::vector<T> &list)
 template <typename T>
 void build(Json::Value &object, const char *name, const std::vector<T> &list)
 {
+    if (list.empty()) { return; }
+
     auto &value(object[name] = Json::arrayValue);
     for (const auto &element : list) { build(value.append({}), element); }
 }
 
-void build(Json::Value &value, const Assets &assets)
+void build(Json::Value &value, const GLTF &gltf)
 {
     value = Json::objectValue;
 
-    build(value["scenes"], assets.scenes);
-    build(value, "scene", assets.scene);
-    build(value["nodes"], assets.nodes);
-    build(value["meshes"], assets.meshes);
-    build(value["textures"], assets.textures);
-    build(value["images"], assets.images);
+    build(value["asset"], gltf.asset);
+    build(value, "scenes", gltf.scenes);
+    build(value, "scene", gltf.scene);
+    build(value, "nodes", gltf.nodes);
+    build(value, "meshes", gltf.meshes);
+    build(value, "textures", gltf.textures);
+    build(value, "images", gltf.images);
+    build(value, "buffers", gltf.buffers);
+    build(value, "bufferViews", gltf.bufferViews);
+    build(value, "accessors", gltf.accessors);
 }
 
 } // namespace detail
 
-void write(std::ostream &os, const Assets &assets)
+void write(std::ostream &os, const GLTF &gltf)
 {
     Json::Value value;
-    detail::build(value, assets);
+    detail::build(value, gltf);
     os.precision(15);
     Json::write(os, value);
 }
 
-void write(const boost::filesystem::path &path, const Assets &assets)
+void write(const boost::filesystem::path &path, const GLTF &gltf)
 {
-    LOG(info1) << "Saving glTF assets to " << path  << ".";
+    LOG(info1) << "Saving glTF to " << path  << ".";
     std::ofstream f;
     f.exceptions(std::ios::badbit | std::ios::failbit);
     f.open(path.string(), std::ios_base::out);
-    write(f, assets);
+    write(f, gltf);
     f.close();
 }
 
