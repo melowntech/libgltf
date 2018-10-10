@@ -28,30 +28,6 @@ typedef std::vector<int> Indices;
 typedef boost::optional<Index> OptIndex;
 typedef boost::optional<std::string> OptString;
 
-struct Buffer {
-    OptString uri;
-    std::size_t byteLength;
-    OptString name;
-
-    Buffer(std::size_t byteLength = 0) : byteLength(byteLength) {}
-
-    typedef std::vector<Buffer> list;
-};
-
-struct BufferView {
-    Index buffer;
-    boost::optional<std::size_t> offset;
-    std::size_t byteLength;
-    boost::optional<std::size_t> byteStride;
-    boost::optional<std::size_t> target;
-    OptString name;
-
-    BufferView(Index buffer = 0, std::size_t byteLength = 0)
-        : buffer(buffer), byteLength(byteLength) {}
-
-    typedef std::vector<BufferView> list;
-};
-
 UTILITY_GENERATE_ENUM(AttributeType,
                       ((scalar)("SCALAR"))
                       ((vec2)("VEC2"))
@@ -91,6 +67,38 @@ enum class PrimitiveMode {
     , triangleFan = 6
 };
 
+enum class Target {
+    arrayBuffer = 34962
+    , elementArrayBuffer = 34963
+};
+
+struct Buffer {
+    OptString uri;
+    std::size_t byteLength;
+    OptString name;
+
+    Buffer(std::size_t byteLength = 0) : byteLength(byteLength) {}
+
+    typedef std::vector<Buffer> list;
+};
+
+struct BufferView {
+    Index buffer;
+    boost::optional<std::size_t> byteOffset;
+    std::size_t byteLength;
+    boost::optional<std::size_t> byteStride;
+    boost::optional<Target> target;
+    OptString name;
+
+    BufferView(Index buffer = 0, std::size_t byteLength = 0)
+        : buffer(buffer), byteLength(byteLength) {}
+
+    typedef std::vector<BufferView> list;
+};
+
+typedef boost::variant<int, double> ComponentValue;
+typedef std::vector<ComponentValue> ComponentValues;
+
 struct Accessor {
     OptIndex bufferView;
     boost::optional<std::size_t> offset;
@@ -98,6 +106,8 @@ struct Accessor {
     boost::optional<bool> normalized;
     std::size_t count;
     AttributeType type;
+    ComponentValues min;
+    ComponentValues max;
     OptString name;
 
     Accessor(ComponentType componentType = ComponentType::byte
@@ -156,6 +166,26 @@ struct Texture {
     typedef std::vector<Texture> list;
 };
 
+struct TextureInfo {
+    Index index;
+    OptIndex texCoord;
+    boost::optional<double> scale;
+
+    TextureInfo(Index index = 0) : index(index) {}
+};
+
+struct PbrMetallicRoughness {
+    OptString name;
+    boost::optional<TextureInfo> baseColorTexture;
+};
+
+struct Material {
+    OptString name;
+    boost::optional<PbrMetallicRoughness> pbrMetallicRoughness;
+
+    typedef std::vector<Material> list;
+};
+
 struct InlineImage {
     std::vector<unsigned char> data;
     std::string mimeType;
@@ -170,6 +200,16 @@ struct BufferViewImage {
     std::string mimeType;
 
     BufferViewImage(Index bufferView) : bufferView(bufferView) {}
+};
+
+struct Sampler {
+    boost::optional<int> magFilter;
+    boost::optional<int> minFilter;
+    boost::optional<int> wrapS;
+    boost::optional<int> wrapT;
+    OptString name;
+
+    typedef std::vector<Sampler> list;
 };
 
 typedef boost::variant<InlineImage, ReferencedImage, BufferViewImage> Image;
@@ -195,11 +235,13 @@ struct GLTF {
     OptIndex scene;
     Node::list nodes;
     Mesh::list meshes;
+    Sampler::list samplers;
     Texture::list textures;
     Images images;
     Buffer::list buffers;
     BufferView::list bufferViews;
     Accessor::list accessors;
+    Material::list materials;
 
     Scene& defaultScene() {
         if (scenes.empty()) { scenes.emplace_back(); }
@@ -207,6 +249,41 @@ struct GLTF {
         return scenes.front();
     }
 };
+
+template <typename T>
+class IndexedValue {
+public:
+    IndexedValue(Index index, T &value)
+        : index_(index), value_(&value)
+    {}
+
+    T& operator*() { return *value_; }
+    const T& operator*() const { return *value_; }
+    T* operator->() { return value_; }
+    const T* operator->() const { return value_; }
+
+    Index index() const { return index_; }
+
+private:
+    Index index_;
+    T *value_;
+};
+
+template <typename T, typename ...Args>
+IndexedValue<T> add(std::vector<T> &vector, Args &&...args)
+{
+    auto index(vector.size());
+    vector.emplace_back(std::forward<Args>(args)...);
+    return IndexedValue<T>(index, vector.back());
+}
+
+template <typename Variant, typename T, typename ...Args>
+IndexedValue<Variant> add(std::vector<T> &vector, Args &&...args)
+{
+    auto index(vector.size());
+    vector.push_back(Variant(std::forward<Args>(args)...));
+    return IndexedValue<Variant>(index, boost::get<Variant>(vector.back()));
+}
 
 void write(std::ostream &os, const GLTF &gltf);
 void write(const boost::filesystem::path &path, const GLTF &gltf);

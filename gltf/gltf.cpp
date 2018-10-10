@@ -70,10 +70,23 @@ void build(Json::Value &value, const BufferView &bufferView)
 {
     value = Json::objectValue;
     build(value["buffer"], bufferView.buffer);
+    build(value, "byteOffset", bufferView.byteOffset);
     build(value["byteLength"], Json::UInt64(bufferView.byteLength));
     build(value, "byteStride", bufferView.byteStride);
     build(value, "target", bufferView.target);
     build(value, "name", bufferView.name);
+}
+
+void build(Json::Value &value, const ComponentValue &cv)
+{
+    struct BuildValue : public boost::static_visitor<void> {
+        Json::Value &value;
+        BuildValue(Json::Value &value) : value(value) {}
+
+        void operator()(const int &v) { value = v; }
+        void operator()(const double &v) { value = v; }
+    } bv(value);
+    boost::apply_visitor(bv, cv);
 }
 
 void build(Json::Value &value, const Accessor &accessor)
@@ -85,6 +98,8 @@ void build(Json::Value &value, const Accessor &accessor)
     build(value, "normalized", accessor.normalized);
     build(value["count"], Json::UInt64(accessor.count));
     build(value["type"], boost::lexical_cast<std::string>(accessor.type));
+    build(value, "max", accessor.max);
+    build(value, "min", accessor.min);
     build(value, "name", accessor.name);
 }
 
@@ -125,6 +140,16 @@ void build(Json::Value &value, const Mesh &mesh)
     build(value, "primitives", mesh.primitives);
 }
 
+void build(Json::Value &value, const Sampler &sampler)
+{
+    value = Json::objectValue;
+    build(value, "magFilter", sampler.magFilter);
+    build(value, "minFilter", sampler.minFilter);
+    build(value, "wrapS", sampler.wrapS);
+    build(value, "wrapT", sampler.wrapT);
+    build(value, "name", sampler.name);
+}
+
 void build(Json::Value &value, const Texture &texture)
 {
     value = Json::objectValue;
@@ -156,6 +181,28 @@ void build(Json::Value &value, const Image &image)
         }
     } bi(value);
     boost::apply_visitor(bi, image);
+}
+
+void build(Json::Value &value, const TextureInfo &textureInfo)
+{
+    value = Json::objectValue;
+    build(value["index"], textureInfo.index);
+    build(value, "texCoord", textureInfo.texCoord);
+    build(value, "scale", textureInfo.scale);
+}
+
+void build(Json::Value &value
+           , const PbrMetallicRoughness &pbrMetallicRoughness)
+{
+    value = Json::objectValue;
+    build(value, "baseColorTexture", pbrMetallicRoughness.baseColorTexture);
+}
+
+void build(Json::Value &value, const Material &material)
+{
+    value = Json::objectValue;
+    build(value, "name", material.name);
+    build(value, "pbrMetallicRoughness", material.pbrMetallicRoughness);
 }
 
 template<class T>
@@ -212,8 +259,10 @@ void build(Json::Value &value, const GLTF &gltf)
     build(value, "scene", gltf.scene);
     build(value, "nodes", gltf.nodes);
     build(value, "meshes", gltf.meshes);
-    build(value, "textures", gltf.textures);
+    build(value, "samplers", gltf.samplers);
     build(value, "images", gltf.images);
+    build(value, "textures", gltf.textures);
+    build(value, "materials", gltf.materials);
     build(value, "buffers", gltf.buffers);
     build(value, "bufferViews", gltf.bufferViews);
     build(value, "accessors", gltf.accessors);
