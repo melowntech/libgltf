@@ -263,6 +263,7 @@ public:
     const T* operator->() const { return value_; }
 
     Index index() const { return index_; }
+    operator Index() const { return index_; }
 
 private:
     Index index_;
