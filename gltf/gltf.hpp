@@ -8,6 +8,7 @@
 #include <boost/variant.hpp>
 
 #include "utility/enum-io.hpp"
+#include "utility/openmp.hpp"
 
 #include "math/geometry_core.hpp"
 
@@ -262,40 +263,16 @@ struct GLTF {
     }
 };
 
-template <typename T>
-class IndexedValue {
-public:
-    IndexedValue(Index index, T &value)
-        : index_(index), value_(&value)
-    {}
-
-    T& operator*() { return *value_; }
-    const T& operator*() const { return *value_; }
-    T* operator->() { return value_; }
-    const T* operator->() const { return value_; }
-
-    Index index() const { return index_; }
-    operator Index() const { return index_; }
-
-private:
-    Index index_;
-    T *value_;
-};
-
 template <typename T, typename ...Args>
-IndexedValue<T> add(std::vector<T> &vector, Args &&...args)
+Index add(std::vector<T> &vector, Args &&...args)
 {
-    auto index(vector.size());
-    vector.emplace_back(std::forward<Args>(args)...);
-    return IndexedValue<T>(index, vector.back());
-}
-
-template <typename Variant, typename T, typename ...Args>
-IndexedValue<Variant> add(std::vector<T> &vector, Args &&...args)
-{
-    auto index(vector.size());
-    vector.push_back(Variant(std::forward<Args>(args)...));
-    return IndexedValue<Variant>(index, boost::get<Variant>(vector.back()));
+    Index index;
+    UTILITY_OMP(critical(gltf_add))
+    {
+        index = vector.size();
+        vector.emplace_back(std::forward<Args>(args)...);
+    }
+    return index;
 }
 
 void write(std::ostream &os, const GLTF &gltf);
