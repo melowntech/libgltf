@@ -27,6 +27,7 @@ typedef int Index;
 typedef std::vector<int> Indices;
 typedef boost::optional<Index> OptIndex;
 typedef boost::optional<std::string> OptString;
+typedef std::vector<std::string> ExtensionList;
 
 UTILITY_GENERATE_ENUM(AttributeType,
                       ((scalar)("SCALAR"))
@@ -177,11 +178,19 @@ struct TextureInfo {
 struct PbrMetallicRoughness {
     OptString name;
     boost::optional<TextureInfo> baseColorTexture;
+    boost::optional<double> metallicFactor;
+    boost::optional<double> roughnessFactor;
 };
 
 struct Material {
     OptString name;
     boost::optional<PbrMetallicRoughness> pbrMetallicRoughness;
+
+    /** Built-in support for KHR_materials_unlit
+     */
+    bool extension_unlit;
+
+    Material() : extension_unlit(false) {}
 
     typedef std::vector<Material> list;
 };
@@ -242,6 +251,9 @@ struct GLTF {
     BufferView::list bufferViews;
     Accessor::list accessors;
     Material::list materials;
+
+    ExtensionList extensionsUsed;
+    ExtensionList extensionsRequired;
 
     Scene& defaultScene() {
         if (scenes.empty()) { scenes.emplace_back(); }

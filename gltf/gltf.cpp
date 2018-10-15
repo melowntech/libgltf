@@ -27,6 +27,14 @@ void build(Json::Value &value, const std::vector<T> &list);
 template <typename T>
 void build(Json::Value &object, const char *name, const std::vector<T> &list);
 
+Json::Value& extensions(Json::Value &object)
+{
+    if (object.isMember("extensions")) {
+        return object["extensions"];
+    }
+    return object["extensions"] = Json::objectValue;
+}
+
 void build(Json::Value &object, const math::Matrix4 &matrix)
 {
     // dump matrix as a column major
@@ -196,6 +204,8 @@ void build(Json::Value &value
 {
     value = Json::objectValue;
     build(value, "baseColorTexture", pbrMetallicRoughness.baseColorTexture);
+    build(value, "metallicFactor", pbrMetallicRoughness.metallicFactor);
+    build(value, "roughnessFactor", pbrMetallicRoughness.roughnessFactor);
 }
 
 void build(Json::Value &value, const Material &material)
@@ -203,6 +213,11 @@ void build(Json::Value &value, const Material &material)
     value = Json::objectValue;
     build(value, "name", material.name);
     build(value, "pbrMetallicRoughness", material.pbrMetallicRoughness);
+
+    if (material.extension_unlit) {
+        auto &ext(extensions(value));
+        ext["KHR_materials_unlit"] = Json::objectValue;
+    }
 }
 
 template<class T>
@@ -266,6 +281,10 @@ void build(Json::Value &value, const GLTF &gltf)
     build(value, "buffers", gltf.buffers);
     build(value, "bufferViews", gltf.bufferViews);
     build(value, "accessors", gltf.accessors);
+
+    // extensions; TODO: dynamic?
+    build(value, "extensionsUsed", gltf.extensionsUsed);
+    build(value, "extensionsRequired", gltf.extensionsRequired);
 }
 
 } // namespace detail
