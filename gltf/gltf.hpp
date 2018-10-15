@@ -275,8 +275,18 @@ Index add(std::vector<T> &vector, Args &&...args)
     return index;
 }
 
+/** Write a glTF JSON file to an output stream.
+ */
 void write(std::ostream &os, const GLTF &gltf);
+
+/** Write a glTF JSON file to an output file.
+ */
 void write(const boost::filesystem::path &path, const GLTF &gltf);
+
+/** Generate GLB file from glTF JSON and external files in srcDir.
+ */
+void glb(const boost::filesystem::path &path, const GLTF &gltf
+         , const boost::filesystem::path &srcDir);
 
 } // namespace gltf
 
