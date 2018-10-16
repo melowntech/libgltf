@@ -4,7 +4,6 @@
 #include "utility/streams.hpp"
 #include "utility/format.hpp"
 
-#include "jsoncpp/as.hpp"
 #include "jsoncpp/io.hpp"
 
 #include "./gltf.hpp"
@@ -27,12 +26,17 @@ void build(Json::Value &value, const std::vector<T> &list);
 template <typename T>
 void build(Json::Value &object, const char *name, const std::vector<T> &list);
 
-Json::Value& extensions(Json::Value &object)
+template <typename T>
+void build(Json::Value &object, const char *name
+           , const std::map<std::string, T> &map);
+
+/** Any is expected to be Json::Value instance.
+ */
+void build(Json::Value &object, const char *name, const boost::any &value)
 {
-    if (object.isMember("extensions")) {
-        return object["extensions"];
+    if (const auto *valueObject = boost::any_cast<Json::Value>(&value)) {
+        object[name] = *valueObject;
     }
-    return object["extensions"] = Json::objectValue;
 }
 
 void build(Json::Value &object, const math::Matrix4 &matrix)
@@ -58,8 +62,22 @@ void build(Json::Value &value, const Version &version)
     value = utility::format("%d.%d", version.major, version.minor);
 }
 
+void common(Json::Value &value, const CommonBase &cb)
+{
+    value = Json::objectValue;
+    build(value, "extensions", cb.extensions);
+    build(value, "extras", cb.extras);
+}
+
+void namedCommon(Json::Value &value, const NamedCommonBase &ncb)
+{
+    common(value, ncb);
+    build(value, "name", ncb.name);
+}
+
 void build(Json::Value &value, const Asset &asset)
 {
+    common(value, asset);
     build(value, "copyright", asset.copyright);
     build(value, "generator", asset.generator);
     build(value["version"], asset.version);
@@ -68,15 +86,14 @@ void build(Json::Value &value, const Asset &asset)
 
 void build(Json::Value &value, const Buffer &buffer)
 {
-    value = Json::objectValue;
+    namedCommon(value, buffer);
     build(value, "uri", buffer.uri);
     build(value["byteLength"], Json::UInt64(buffer.byteLength));
-    build(value, "name", buffer.name);
 }
 
 void build(Json::Value &value, const BufferView &bufferView)
 {
-    value = Json::objectValue;
+    namedCommon(value, bufferView);
     build(value["buffer"], bufferView.buffer);
     build(value, "byteOffset", bufferView.byteOffset);
     build(value["byteLength"], Json::UInt64(bufferView.byteLength));
@@ -99,7 +116,7 @@ void build(Json::Value &value, const ComponentValue &cv)
 
 void build(Json::Value &value, const Accessor &accessor)
 {
-    value = Json::objectValue;
+    namedCommon(value, accessor);
     build(value, "bufferView", accessor.bufferView);
     build(value, "offset", accessor.offset);
     build(value["componentType"], static_cast<int>(accessor.componentType));
@@ -113,14 +130,14 @@ void build(Json::Value &value, const Accessor &accessor)
 
 void build(Json::Value &value, const Scene &scene)
 {
-    value = Json::objectValue;
+    namedCommon(value, scene);
     build(value, "name", scene.name);
     build(value, "nodes", scene.nodes);
 }
 
 void build(Json::Value &value, const Node &node)
 {
-    value = Json::objectValue;
+    namedCommon(value, node);
     build(value, "name", node.name);
     build(value, "camera", node.camera);
     build(value, "children", node.children);
@@ -130,7 +147,7 @@ void build(Json::Value &value, const Node &node)
 
 void build(Json::Value &value, const Primitive &primitive)
 {
-    value = Json::objectValue;
+    common(value, primitive);
     auto &attributes(value["attributes"] = Json::objectValue);
     for (const auto &pair : primitive.attributes) {
         attributes[boost::lexical_cast<std::string>(pair.first)] = pair.second;
@@ -143,14 +160,14 @@ void build(Json::Value &value, const Primitive &primitive)
 
 void build(Json::Value &value, const Mesh &mesh)
 {
-    value = Json::objectValue;
+    namedCommon(value, mesh);
     build(value, "name", mesh.name);
     build(value, "primitives", mesh.primitives);
 }
 
 void build(Json::Value &value, const Sampler &sampler)
 {
-    value = Json::objectValue;
+    namedCommon(value, sampler);
     build(value, "magFilter", sampler.magFilter);
     build(value, "minFilter", sampler.minFilter);
     build(value, "wrapS", sampler.wrapS);
@@ -160,7 +177,7 @@ void build(Json::Value &value, const Sampler &sampler)
 
 void build(Json::Value &value, const Texture &texture)
 {
-    value = Json::objectValue;
+    namedCommon(value, texture);
     value["sampler"] = texture.sampler;
     value["source"] = texture.source;
     build(value, "name", texture.name);
@@ -170,9 +187,10 @@ void build(Json::Value &value, const Image &image)
 {
     struct BuildImage : public boost::static_visitor<void> {
         Json::Value &value;
-        BuildImage(Json::Value &value) : value(value = Json::objectValue) {}
+        BuildImage(Json::Value &value) : value(value) {}
 
         void operator()(const InlineImage &image) {
+            namedCommon(value, image);
             value["uri"]
                 = utility::concat("data:", image.mimeType, ";base64,"
                                   , utility::base64::encode
@@ -180,10 +198,12 @@ void build(Json::Value &value, const Image &image)
         }
 
         void operator()(const ReferencedImage &image) {
+            namedCommon(value, image);
             value["uri"] = image.uri;
         }
 
         void operator()(const BufferViewImage &image) {
+            namedCommon(value, image);
             value["bufferView"] = image.bufferView;
             value["mimeType"] = image.mimeType;
         }
@@ -193,7 +213,7 @@ void build(Json::Value &value, const Image &image)
 
 void build(Json::Value &value, const TextureInfo &textureInfo)
 {
-    value = Json::objectValue;
+    common(value, textureInfo);
     build(value["index"], textureInfo.index);
     build(value, "texCoord", textureInfo.texCoord);
     build(value, "scale", textureInfo.scale);
@@ -202,7 +222,7 @@ void build(Json::Value &value, const TextureInfo &textureInfo)
 void build(Json::Value &value
            , const PbrMetallicRoughness &pbrMetallicRoughness)
 {
-    value = Json::objectValue;
+    common(value, pbrMetallicRoughness);
     build(value, "baseColorTexture", pbrMetallicRoughness.baseColorTexture);
     build(value, "metallicFactor", pbrMetallicRoughness.metallicFactor);
     build(value, "roughnessFactor", pbrMetallicRoughness.roughnessFactor);
@@ -210,14 +230,9 @@ void build(Json::Value &value
 
 void build(Json::Value &value, const Material &material)
 {
-    value = Json::objectValue;
+    namedCommon(value, material);
     build(value, "name", material.name);
     build(value, "pbrMetallicRoughness", material.pbrMetallicRoughness);
-
-    if (material.extension_unlit) {
-        auto &ext(extensions(value));
-        ext["KHR_materials_unlit"] = Json::objectValue;
-    }
 }
 
 template<class T>
@@ -265,9 +280,21 @@ void build(Json::Value &object, const char *name, const std::vector<T> &list)
     for (const auto &element : list) { build(value.append({}), element); }
 }
 
+template <typename T>
+void build(Json::Value &object, const char *name
+           , const std::map<std::string, T> &map)
+{
+    if (map.empty()) { return; }
+
+    auto &value(object[name] = Json::objectValue);
+    for (const auto &element : map) {
+        build(value, element.first.c_str(), element.second);
+    }
+}
+
 void build(Json::Value &value, const GLTF &gltf)
 {
-    value = Json::objectValue;
+    common(value, gltf);
 
     build(value["asset"], gltf.asset);
     build(value, "scenes", gltf.scenes);
@@ -289,12 +316,16 @@ void build(Json::Value &value, const GLTF &gltf)
 
 } // namespace detail
 
+boost::any emptyObject()
+{
+    return Json::Value(Json::objectValue);
+}
+
 void write(std::ostream &os, const GLTF &gltf)
 {
     Json::Value value;
     detail::build(value, gltf);
-    os.precision(15);
-    Json::write(os, value);
+    Json::write(os, value, false);
 }
 
 void write(const boost::filesystem::path &path, const GLTF &gltf)

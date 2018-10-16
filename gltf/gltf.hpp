@@ -4,6 +4,7 @@
 #include <iosfwd>
 
 #include <vector>
+#include <boost/any.hpp>
 #include <boost/optional.hpp>
 #include <boost/variant.hpp>
 
@@ -24,11 +25,17 @@
 
 namespace gltf {
 
-typedef int Index;
-typedef std::vector<int> Indices;
-typedef boost::optional<Index> OptIndex;
-typedef boost::optional<std::string> OptString;
-typedef std::vector<std::string> ExtensionList;
+using Index = int;
+using Indices = std::vector<int>;
+using OptIndex = boost::optional<Index>;
+using OptString = boost::optional<std::string> ;
+using ExtensionList = std::vector<std::string>;
+using Extension = boost::any;
+using Extensions = std::map<std::string, Extension>;
+
+/** Retuns boost::any set to empty JSON object.
+ */
+boost::any emptyObject();
 
 UTILITY_GENERATE_ENUM(AttributeType,
                       ((scalar)("SCALAR"))
@@ -74,34 +81,42 @@ enum class Target {
     , elementArrayBuffer = 34963
 };
 
-struct Buffer {
+
+struct CommonBase {
+    Extensions extensions;
+    boost::any extras;
+};
+
+struct NamedCommonBase : CommonBase {
+    OptString name;
+};
+
+struct Buffer : NamedCommonBase {
     OptString uri;
     std::size_t byteLength;
-    OptString name;
 
     Buffer(std::size_t byteLength = 0) : byteLength(byteLength) {}
 
-    typedef std::vector<Buffer> list;
+    using list = std::vector<Buffer>;
 };
 
-struct BufferView {
+struct BufferView : NamedCommonBase {
     Index buffer;
     boost::optional<std::size_t> byteOffset;
     std::size_t byteLength;
     boost::optional<std::size_t> byteStride;
     boost::optional<Target> target;
-    OptString name;
 
     BufferView(Index buffer = 0, std::size_t byteLength = 0)
         : buffer(buffer), byteLength(byteLength) {}
 
-    typedef std::vector<BufferView> list;
+    using list =  std::vector<BufferView>;
 };
 
-typedef boost::variant<int, double> ComponentValue;
-typedef std::vector<ComponentValue> ComponentValues;
+using ComponentValue = boost::variant<int, double>;
+using ComponentValues = std::vector<ComponentValue>;
 
-struct Accessor {
+struct Accessor : NamedCommonBase {
     OptIndex bufferView;
     boost::optional<std::size_t> offset;
     ComponentType componentType;
@@ -110,7 +125,6 @@ struct Accessor {
     AttributeType type;
     ComponentValues min;
     ComponentValues max;
-    OptString name;
 
     Accessor(ComponentType componentType = ComponentType::byte
              , std::size_t count = 0
@@ -118,57 +132,53 @@ struct Accessor {
         : componentType(componentType), count(count), type(type)
     {}
 
-    typedef std::vector<Accessor> list;
+    using list =  std::vector<Accessor>;
 };
 
-struct Scene {
-    OptString name;
+struct Scene : NamedCommonBase {
     Indices nodes;
 
-    typedef std::vector<Scene> list;
+    using list =  std::vector<Scene>;
 };
 
-struct Node {
-    OptString name;
+struct Node : NamedCommonBase {
     OptIndex camera;
     Indices children;
     boost::optional<math::Matrix4> matrix; // serialize as column major!
     OptIndex mesh;
 
-    typedef std::vector<Node> list;
+    using list =  std::vector<Node>;
 };
 
-struct Primitive {
-    typedef std::map<AttributeSemantic, Index> Attributes;
+struct Primitive : CommonBase {
+    using Attributes = std::map<AttributeSemantic, Index>;
     Attributes attributes;
     OptIndex indices;
     OptIndex material;
     boost::optional<PrimitiveMode> mode;
     Indices targets;
 
-    typedef std::vector<Primitive> list;
+    using list =  std::vector<Primitive>;
 };
 
-struct Mesh {
-    OptString name;
+struct Mesh : NamedCommonBase {
     Primitive::list primitives;
 
-    typedef std::vector<Mesh> list;
+    using list =  std::vector<Mesh>;
 };
 
-struct Texture {
+struct Texture : NamedCommonBase {
     Index sampler;
     Index source;
-    OptString name;
 
     Texture(Index sampler, Index source)
         : sampler(sampler), source(source)
     {}
 
-    typedef std::vector<Texture> list;
+    using list =  std::vector<Texture>;
 };
 
-struct TextureInfo {
+struct TextureInfo : CommonBase  {
     Index index;
     OptIndex texCoord;
     boost::optional<double> scale;
@@ -176,54 +186,45 @@ struct TextureInfo {
     TextureInfo(Index index = 0) : index(index) {}
 };
 
-struct PbrMetallicRoughness {
-    OptString name;
+struct PbrMetallicRoughness : CommonBase  {
     boost::optional<TextureInfo> baseColorTexture;
     boost::optional<double> metallicFactor;
     boost::optional<double> roughnessFactor;
 };
 
-struct Material {
-    OptString name;
+struct Material : NamedCommonBase {
     boost::optional<PbrMetallicRoughness> pbrMetallicRoughness;
 
-    /** Built-in support for KHR_materials_unlit
-     */
-    bool extension_unlit;
-
-    Material() : extension_unlit(false) {}
-
-    typedef std::vector<Material> list;
+    using list =  std::vector<Material>;
 };
 
-struct InlineImage {
+struct InlineImage : NamedCommonBase {
     std::vector<unsigned char> data;
     std::string mimeType;
 };
 
-struct ReferencedImage {
+struct ReferencedImage : NamedCommonBase {
     std::string uri;
 };
 
-struct BufferViewImage {
+struct BufferViewImage : NamedCommonBase {
     Index bufferView;
     std::string mimeType;
 
     BufferViewImage(Index bufferView) : bufferView(bufferView) {}
 };
 
-struct Sampler {
+struct Sampler : NamedCommonBase {
     boost::optional<int> magFilter;
     boost::optional<int> minFilter;
     boost::optional<int> wrapS;
     boost::optional<int> wrapT;
-    OptString name;
 
-    typedef std::vector<Sampler> list;
+    using list =  std::vector<Sampler>;
 };
 
-typedef boost::variant<InlineImage, ReferencedImage, BufferViewImage> Image;
-typedef std::vector<Image> Images;
+using Image = boost::variant<InlineImage, ReferencedImage, BufferViewImage> ;
+using Images = std::vector<Image>;
 
 struct Version {
     int major;
@@ -232,14 +233,14 @@ struct Version {
     Version(int major = 2, int minor = 0) : major(major), minor(minor) {}
  };
 
-struct Asset {
+struct Asset : CommonBase {
     OptString copyright;
     OptString generator;
     Version version;
     boost::optional<Version> minVersion;
 };
 
-struct GLTF {
+struct GLTF : CommonBase {
     Asset asset;
     Scene::list scenes;
     OptIndex scene;
