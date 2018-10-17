@@ -1,3 +1,4 @@
+#include <map>
 #include <limits>
 
 #include <boost/lexical_cast.hpp>
@@ -30,6 +31,8 @@ struct GlbHeader {
     std::uint32_t length;
 
     GlbHeader() : magic(0x46546c67), version(2), length() {}
+
+    static std::size_t size() { return 12; }
 };
 
 struct ChunkHeader {
@@ -40,6 +43,10 @@ struct ChunkHeader {
 
     std::uint32_t length;
     Type type;
+
+    ChunkHeader(Type type) : length(), type(type) {}
+
+    static std::size_t size() { return 8; }
 };
 
 void write(std::ostream &os, const GlbHeader &header)
@@ -88,85 +95,192 @@ inline bool localPath(const OptString &uri)
 struct ExternalFile {
     fs::path path;
     std::string mimeType;
+    std::size_t byteLength;
+    std::size_t offset;
     BufferView bufferView;
+    std::size_t padding;
     std::size_t size;
 
-    ExternalFile(const fs::path &path, std::size_t offset
-                 , Index bufferId = -1)
+    ExternalFile(Index bufferId)
+        : bufferView(bufferId)
+    {}
+
+    ExternalFile(const fs::path &path, std::size_t offset)
         : path(path), mimeType(detectMimeType(path))
-        , bufferView(bufferId, utility::fileSize(path))
-        , size(bufferView.byteLength + computePadding(bufferView.byteLength))
-    {
-        bufferView.byteOffset = offset;
-    }
+        , byteLength(utility::fileSize(path))
+        , offset(offset)
+        , padding(computePadding(byteLength))
+        , size(byteLength + padding)
+    {}
 
     typedef std::vector<ExternalFile> list;
 };
 
 struct ExternalFiles {
     ExternalFile::list files;
-    std::size_t size;
-
-    ExternalFiles() : size() {}
+    Buffer::list buffers;
+    BufferView::list bufferViews;
+    Images images;
 };
 
 ExternalFiles collectFiles(GLTF gltf, const fs::path &srcDir)
 {
     ExternalFiles ef;
 
-    std::size_t offset(0);
+    ef.buffers.emplace_back();
+    auto &embedded(ef.buffers.back());
+    auto &offset(embedded.byteLength);
+
+    // buffer mapping
+    using BufferMappingValue = std::pair<Index, bool>;
+    using BufferMapping = std::vector<BufferMappingValue>;
+
+    BufferMapping bufferMapping;
 
     for (Index bufferId(0), ebufferId(gltf.buffers.size());
          bufferId != ebufferId; ++bufferId)
     {
         const auto &buffer(gltf.buffers[bufferId]);
-        if (!localPath(buffer.uri)) { continue; }
-        ef.files.emplace_back(srcDir / *buffer.uri, offset, bufferId);
-        offset += ef.files.back().size;
+        if (localPath(buffer.uri)) {
+            // local, embed
+            bufferMapping.emplace_back(ef.files.size(), false);
+            ef.files.emplace_back(srcDir / *buffer.uri, offset);
+            offset += ef.files.back().size;
+        } else {
+            // external
+            bufferMapping.emplace_back(ef.buffers.size(), true);
+            ef.buffers.push_back(buffer);
+        }
     }
 
+    // generate new buffer views for updated buffers
+    for (Index bvId(0), ebvId(gltf.bufferViews.size());
+         bvId != ebvId; ++bvId)
+    {
+        auto bv(gltf.bufferViews[bvId]);
+        const auto &mapping(bufferMapping[bv.buffer]);
+        if (mapping.second) {
+            // external, just rewrite
+            bv.buffer = mapping.first;
+        } else {
+            // internal
+            // index points to file in ef.files
+            bv.buffer = 0; // map to the first (embedded) buffer
+
+            const auto &file(ef.files[mapping.first]);
+
+            if (bv.byteOffset) {
+                *bv.byteOffset += file.offset;
+            } else {
+                bv.byteOffset = file.offset;
+            }
+        }
+        ef.bufferViews.push_back(bv);
+    }
+
+    // TODO: images;
     for (const auto &image : gltf.images) {
         const auto *rimage(boost::get<ReferencedImage>(&image));
-        if (!rimage) { continue; }
+        if (!rimage || !localPath(rimage->uri)) {
+            ef.images.push_back(image);
+            continue;
+        }
 
-        if (!localPath(rimage->uri)) { continue; }
         ef.files.emplace_back(srcDir / rimage->uri, offset);
-        offset += ef.files.back().size;
+        const auto &file(ef.files.back());
+        offset += file.size;
+
+        BufferView bv(0, file.byteLength);
+        bv.byteOffset = file.offset;
+
+        BufferViewImage bvi(ef.bufferViews.size());
+        bvi.mimeType = file.mimeType;
+
+        ef.bufferViews.push_back(bv);
+        ef.images.push_back(bvi);
     }
 
-    ef.size = offset + computePadding(offset);
+    // pad whole embedded buffer
+    offset += computePadding(offset);
 
     return ef;
 }
 
+void write(std::ostream &os, const ExternalFiles &ef)
+{
+    for (const auto &file : ef.files) {
+        utility::ifstreambuf is(file.path.string());
+        os << is.rdbuf();
+        is.close();
+        // pad
+        for (auto padding(file.padding); padding; --padding) {
+            os << '\0';
+        }
+    }
+}
+
 } // namespace detail
 
-void glb(const fs::path &path, const GLTF &gltf, const fs::path &srcDir)
+void glb(const fs::path &path, const GLTF &srcGltf, const fs::path &srcDir)
 {
     LOG(info1) << "Generating GLB in " << path  << ".";
 
     utility::ofstreambuf os(path.string());
 
-    const auto ef(detail::collectFiles(gltf, srcDir));
+    const auto ef(detail::collectFiles(srcGltf, srcDir));
 
-    for (const auto &file : ef.files) {
-        LOG(info4) << "file: " << file.path << ": " << file.mimeType
-                   << ", " << file.bufferView.byteLength
-                   << ", " << file.bufferView.buffer;
-    }
-    LOG(info4) << "chunk size: " << ef.size;
-    if (ef.size > std::numeric_limits<std::uint32_t>::max()) {
+    auto gltf(srcGltf);
+    gltf.buffers = ef.buffers;
+    gltf.bufferViews = ef.bufferViews;
+    gltf.images = ef.images;
+
+    const auto json([&]() -> std::string
+    {
+        // serialize glTF JSON and pad it with spaces
+        std::ostringstream tmp;
+        write(tmp, gltf);
+        auto padding(detail::computePadding(tmp.tellp()));
+        while (padding--) { tmp << ' '; }
+        return tmp.str();
+    }());
+
+    std::size_t fileSize
+        = detail::GlbHeader::size()
+        + detail::ChunkHeader::size() + json.size()
+        + detail::ChunkHeader::size() + ef.buffers[0].byteLength;
+
+
+    // sanity check
+    if (fileSize > std::numeric_limits<std::uint32_t>::max()) {
         LOGTHROW(err2, std::runtime_error)
             << "Data too large to be represented in GLB. "
             "Use directory based storage instead.";
     }
 
-    // NB: placeholder for header, will be rewritten when total size is known.
-    detail::GlbHeader header;
-    write(os, header);
+    // write header
+    {
+        detail::GlbHeader header;
+        header.length = fileSize;
+        detail::write(os, header);
+    }
 
-    (void) gltf;
-    (void) srcDir;
+    // write glTF JSON chunk
+    {
+        detail::ChunkHeader header(detail::ChunkHeader::Type::json);
+        header.length = json.size();
+        detail::write(os, header);
+        bin::write(os, json.data(), json.size());
+    }
+
+    // write BIN chunk
+    {
+        detail::ChunkHeader header(detail::ChunkHeader::Type::bin);
+        header.length = ef.buffers[0].byteLength;
+        detail::write(os, header);
+        detail::write(os, ef);
+    }
+
+    os.close();
 }
 
 } // namespace gltf

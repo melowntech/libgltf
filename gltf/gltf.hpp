@@ -220,7 +220,7 @@ struct Sampler : NamedCommonBase {
     boost::optional<int> wrapS;
     boost::optional<int> wrapT;
 
-    using list =  std::vector<Sampler>;
+    using list = std::vector<Sampler>;
 };
 
 using Image = boost::variant<InlineImage, ReferencedImage, BufferViewImage> ;
