@@ -50,6 +50,30 @@ void build(Json::Value &object, const math::Matrix4 &matrix)
     }
 }
 
+void build(Json::Value &object, const math::Point2d &p)
+{
+    object = Json::arrayValue;
+    object.append(p(0));
+    object.append(p(1));
+}
+
+void build(Json::Value &object, const math::Point3d &p)
+{
+    object = Json::arrayValue;
+    object.append(p(0));
+    object.append(p(1));
+    object.append(p(2));
+}
+
+void build(Json::Value &object, const math::Point4d &p)
+{
+    object = Json::arrayValue;
+    object.append(p(0));
+    object.append(p(1));
+    object.append(p(2));
+    object.append(p(3));
+}
+
 void build(Json::Value &value, const char *name, const Indices &indices)
 {
     if (indices.empty()) { return; }
@@ -142,6 +166,9 @@ void build(Json::Value &value, const Node &node)
     build(value, "camera", node.camera);
     build(value, "children", node.children);
     build(value, "matrix", node.matrix);
+    build(value, "rotation", node.rotation);
+    build(value, "scale", node.scale);
+    build(value, "translation", node.translation);
     build(value, "mesh", node.mesh);
 }
 

@@ -145,6 +145,9 @@ struct Node : NamedCommonBase {
     OptIndex camera;
     Indices children;
     boost::optional<math::Matrix4> matrix; // serialize as column major!
+    boost::optional<math::Point4d> rotation;
+    boost::optional<math::Point3d> scale;
+    boost::optional<math::Point3d> translation;
     OptIndex mesh;
 
     using list =  std::vector<Node>;
