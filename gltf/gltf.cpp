@@ -369,8 +369,7 @@ void write(std::ostream &os, const GLTF &gltf)
 {
     Json::Value value;
     detail::build(value, gltf);
-    // Json::write(os, value, false);
-    Json::write(os, value, true);
+    Json::write(os, value, false);
 }
 
 void write(const boost::filesystem::path &path, const GLTF &gltf)
