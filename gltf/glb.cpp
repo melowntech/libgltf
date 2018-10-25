@@ -113,44 +113,78 @@ struct ExternalFile {
         , size(byteLength + padding)
     {}
 
+    ExternalFile(std::size_t byteLength, std::size_t offset)
+        : byteLength(byteLength)
+        , offset(offset)
+        , padding(computePadding(byteLength))
+        , size(byteLength + padding)
+    {}
+
     typedef std::vector<ExternalFile> list;
 };
 
 struct ExternalFiles {
     ExternalFile::list files;
-    Buffer::list buffers;
+    Buffers buffers;
     BufferView::list bufferViews;
     Images images;
+    std::size_t dataLength;
+
+    ExternalFiles() : dataLength() {}
+};
+
+using BufferMappingValue = std::pair<Index, bool>;
+using BufferMapping = std::vector<BufferMappingValue>;
+
+struct BufferAdder : public boost::static_visitor<void> {
+    const fs::path &srcDir;
+    BufferMapping &bufferMapping;
+    ExternalFiles &ef;
+    std::size_t &offset;
+
+    BufferAdder(const fs::path &srcDir, BufferMapping &bufferMapping
+                , ExternalFiles &ef, std::size_t &offset)
+        : srcDir(srcDir), bufferMapping(bufferMapping), ef(ef), offset(offset)
+    {}
+
+    void operator()(const InlineBuffer &buffer) {
+        // inline, embed
+        bufferMapping.emplace_back(ef.files.size(), false);
+        ef.files.emplace_back(buffer.data.size(), offset);
+        offset += ef.files.back().size;
+    }
+
+    void operator()(const ExternalBuffer &buffer) {
+        if (localPath(buffer.uri)) {
+            // local, embed
+            bufferMapping.emplace_back(ef.files.size(), false);
+            ef.files.emplace_back(srcDir / *buffer.uri, offset);
+                offset += ef.files.back().size;
+        } else {
+            // external
+            bufferMapping.emplace_back(ef.buffers.size(), true);
+            ef.buffers.push_back(buffer);
+        }
+    }
 };
 
 ExternalFiles collectFiles(GLTF gltf, const fs::path &srcDir)
 {
     ExternalFiles ef;
 
-    ef.buffers.emplace_back();
-    auto &embedded(ef.buffers.back());
+    ef.buffers.push_back(ExternalBuffer());
+    auto &embedded(boost::get<ExternalBuffer>(ef.buffers.back()));
+
     auto &offset(embedded.byteLength);
 
-    // buffer mapping
-    using BufferMappingValue = std::pair<Index, bool>;
-    using BufferMapping = std::vector<BufferMappingValue>;
-
     BufferMapping bufferMapping;
+
+    BufferAdder adder(srcDir, bufferMapping, ef, offset);
 
     for (Index bufferId(0), ebufferId(gltf.buffers.size());
          bufferId != ebufferId; ++bufferId)
     {
-        const auto &buffer(gltf.buffers[bufferId]);
-        if (localPath(buffer.uri)) {
-            // local, embed
-            bufferMapping.emplace_back(ef.files.size(), false);
-            ef.files.emplace_back(srcDir / *buffer.uri, offset);
-            offset += ef.files.back().size;
-        } else {
-            // external
-            bufferMapping.emplace_back(ef.buffers.size(), true);
-            ef.buffers.push_back(buffer);
-        }
+        boost::apply_visitor(adder, gltf.buffers[bufferId]);
     }
 
     // generate new buffer views for updated buffers
@@ -180,7 +214,7 @@ ExternalFiles collectFiles(GLTF gltf, const fs::path &srcDir)
 
     // TODO: images;
     for (const auto &image : gltf.images) {
-        const auto *rimage(boost::get<ReferencedImage>(&image));
+        const auto *rimage(boost::get<ExternalImage>(&image));
         if (!rimage || !localPath(rimage->uri)) {
             ef.images.push_back(image);
             continue;
@@ -202,6 +236,8 @@ ExternalFiles collectFiles(GLTF gltf, const fs::path &srcDir)
 
     // pad whole embedded buffer
     offset += computePadding(offset);
+
+    ef.dataLength = offset;
 
     return ef;
 }
@@ -247,7 +283,7 @@ void glb(const fs::path &path, const GLTF &srcGltf, const fs::path &srcDir)
     std::size_t fileSize
         = detail::GlbHeader::size()
         + detail::ChunkHeader::size() + json.size()
-        + detail::ChunkHeader::size() + ef.buffers[0].byteLength;
+        + detail::ChunkHeader::size() + ef.dataLength;
 
 
     // sanity check
@@ -275,7 +311,7 @@ void glb(const fs::path &path, const GLTF &srcGltf, const fs::path &srcDir)
     // write BIN chunk
     {
         detail::ChunkHeader header(detail::ChunkHeader::Type::bin);
-        header.length = ef.buffers[0].byteLength;
+        header.length = ef.dataLength;
         detail::write(os, header);
         detail::write(os, ef);
     }

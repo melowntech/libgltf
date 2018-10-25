@@ -108,11 +108,28 @@ void build(Json::Value &value, const Asset &asset)
     build(value, "minVersion", asset.minVersion);
 }
 
+
 void build(Json::Value &value, const Buffer &buffer)
 {
-    namedCommon(value, buffer);
-    build(value, "uri", buffer.uri);
-    build(value["byteLength"], Json::UInt64(buffer.byteLength));
+    struct BuildBuffer : public boost::static_visitor<void> {
+        Json::Value &value;
+        BuildBuffer(Json::Value &value) : value(value) {}
+
+        void operator()(const InlineBuffer &buffer) {
+            namedCommon(value, buffer);
+            value["uri"]
+                = utility::concat("data:application/octet-stream;base64,"
+                                  , utility::base64::encode
+                                  (buffer.data.data(), buffer.data.size()));
+        }
+
+        void operator()(const ExternalBuffer &buffer) {
+            namedCommon(value, buffer);
+            build(value, "uri", buffer.uri);
+            build(value["byteLength"], Json::UInt64(buffer.byteLength));
+        }
+    } bi(value);
+    boost::apply_visitor(bi, buffer);
 }
 
 void build(Json::Value &value, const BufferView &bufferView)
@@ -224,7 +241,7 @@ void build(Json::Value &value, const Image &image)
                                   (image.data.data(), image.data.size()));
         }
 
-        void operator()(const ReferencedImage &image) {
+        void operator()(const ExternalImage &image) {
             namedCommon(value, image);
             value["uri"] = image.uri;
         }
@@ -352,7 +369,8 @@ void write(std::ostream &os, const GLTF &gltf)
 {
     Json::Value value;
     detail::build(value, gltf);
-    Json::write(os, value, false);
+    // Json::write(os, value, false);
+    Json::write(os, value, true);
 }
 
 void write(const boost::filesystem::path &path, const GLTF &gltf)

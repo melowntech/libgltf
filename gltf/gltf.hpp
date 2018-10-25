@@ -91,14 +91,19 @@ struct NamedCommonBase : CommonBase {
     OptString name;
 };
 
-struct Buffer : NamedCommonBase {
+struct InlineBuffer : NamedCommonBase {
+    std::vector<unsigned char> data;
+};
+
+struct ExternalBuffer : NamedCommonBase {
     OptString uri;
     std::size_t byteLength;
 
-    Buffer(std::size_t byteLength = 0) : byteLength(byteLength) {}
-
-    using list = std::vector<Buffer>;
+    ExternalBuffer() : byteLength() {}
 };
+
+using Buffer = boost::variant<InlineBuffer, ExternalBuffer>;
+using Buffers = std::vector<Buffer>;
 
 struct BufferView : NamedCommonBase {
     Index buffer;
@@ -206,7 +211,7 @@ struct InlineImage : NamedCommonBase {
     std::string mimeType;
 };
 
-struct ReferencedImage : NamedCommonBase {
+struct ExternalImage : NamedCommonBase {
     std::string uri;
 };
 
@@ -226,7 +231,7 @@ struct Sampler : NamedCommonBase {
     using list = std::vector<Sampler>;
 };
 
-using Image = boost::variant<InlineImage, ReferencedImage, BufferViewImage> ;
+using Image = boost::variant<InlineImage, ExternalImage, BufferViewImage> ;
 using Images = std::vector<Image>;
 
 struct Version {
@@ -252,7 +257,7 @@ struct GLTF : CommonBase {
     Sampler::list samplers;
     Texture::list textures;
     Images images;
-    Buffer::list buffers;
+    Buffers buffers;
     BufferView::list bufferViews;
     Accessor::list accessors;
     Material::list materials;
