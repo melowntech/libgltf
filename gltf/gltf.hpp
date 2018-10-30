@@ -32,10 +32,16 @@ using OptString = boost::optional<std::string> ;
 using ExtensionList = std::vector<std::string>;
 using Extension = boost::any;
 using Extensions = std::map<std::string, Extension>;
+typedef std::vector<unsigned char> Data;
 
 /** Retuns boost::any set to empty JSON object.
  */
 boost::any emptyObject();
+
+/** Returns matrix that transforms from Z-up coordinate system to Y-up
+ *  coordinate system (used in glTF).
+ */
+math::Matrix4 zup2yup();
 
 UTILITY_GENERATE_ENUM(AttributeType,
                       ((scalar)("SCALAR"))
@@ -92,7 +98,7 @@ struct NamedCommonBase : CommonBase {
 };
 
 struct InlineBuffer : NamedCommonBase {
-    std::vector<unsigned char> data;
+    Data data;
 };
 
 struct ExternalBuffer : NamedCommonBase {
@@ -207,7 +213,7 @@ struct Material : NamedCommonBase {
 };
 
 struct InlineImage : NamedCommonBase {
-    std::vector<unsigned char> data;
+    Data data;
     std::string mimeType;
 };
 
@@ -295,6 +301,11 @@ void write(const boost::filesystem::path &path, const GLTF &gltf);
 /** Generate GLB file from glTF JSON and external files in srcDir.
  */
 void glb(const boost::filesystem::path &path, const GLTF &gltf
+         , const boost::filesystem::path &srcDir);
+
+/** Generate GLB file from glTF JSON and external files in srcDir.
+ */
+void glb(std::ostream &os, const GLTF &gltf
          , const boost::filesystem::path &srcDir);
 
 } // namespace gltf

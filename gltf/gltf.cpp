@@ -365,6 +365,16 @@ boost::any emptyObject()
     return Json::Value(Json::objectValue);
 }
 
+math::Matrix4 zup2yup()
+{
+    math::Matrix4 m(boost::numeric::ublas::zero_matrix<double>(4, 4));
+    m(0, 0) = 1.0;
+    m(1, 2) = 1.0;
+    m(2, 1) = -1.0;
+    m(3, 3) = 1.0;
+    return m;
+}
+
 void write(std::ostream &os, const GLTF &gltf)
 {
     Json::Value value;

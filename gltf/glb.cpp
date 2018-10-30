@@ -26,11 +26,10 @@ namespace gltf {
 namespace detail {
 
 struct GlbHeader {
-    std::uint32_t magic;
     std::uint32_t version;
     std::uint32_t length;
 
-    GlbHeader() : magic(0x46546c67), version(2), length() {}
+    GlbHeader() : version(2), length() {}
 
     static std::size_t size() { return 12; }
 };
@@ -51,7 +50,7 @@ struct ChunkHeader {
 
 void write(std::ostream &os, const GlbHeader &header)
 {
-    bin::write(os, header.magic);
+    os << "glTF";
     bin::write(os, header.version);
     bin::write(os, header.length);
 }
@@ -92,29 +91,26 @@ inline bool localPath(const OptString &uri)
     return localPath(*uri);
 }
 
+using FileData = boost::variant<fs::path, const Data*>;
+
 struct ExternalFile {
-    fs::path path;
+    FileData data;
     std::string mimeType;
     std::size_t byteLength;
     std::size_t offset;
-    BufferView bufferView;
     std::size_t padding;
     std::size_t size;
 
-    ExternalFile(Index bufferId)
-        : bufferView(bufferId)
-    {}
-
     ExternalFile(const fs::path &path, std::size_t offset)
-        : path(path), mimeType(detectMimeType(path))
+        : data(path), mimeType(detectMimeType(path))
         , byteLength(utility::fileSize(path))
         , offset(offset)
         , padding(computePadding(byteLength))
         , size(byteLength + padding)
     {}
 
-    ExternalFile(std::size_t byteLength, std::size_t offset)
-        : byteLength(byteLength)
+    ExternalFile(const Data &srcData, std::size_t offset)
+        : data(&srcData), byteLength(srcData.size())
         , offset(offset)
         , padding(computePadding(byteLength))
         , size(byteLength + padding)
@@ -150,16 +146,17 @@ struct BufferAdder : public boost::static_visitor<void> {
     void operator()(const InlineBuffer &buffer) {
         // inline, embed
         bufferMapping.emplace_back(ef.files.size(), false);
-        ef.files.emplace_back(buffer.data.size(), offset);
+        ef.files.emplace_back(buffer.data, offset);
         offset += ef.files.back().size;
     }
 
     void operator()(const ExternalBuffer &buffer) {
         if (localPath(buffer.uri)) {
             // local, embed
+            // TODO: embed file with the same uri only once
             bufferMapping.emplace_back(ef.files.size(), false);
             ef.files.emplace_back(srcDir / *buffer.uri, offset);
-                offset += ef.files.back().size;
+            offset += ef.files.back().size;
         } else {
             // external
             bufferMapping.emplace_back(ef.buffers.size(), true);
@@ -168,7 +165,60 @@ struct BufferAdder : public boost::static_visitor<void> {
     }
 };
 
-ExternalFiles collectFiles(GLTF gltf, const fs::path &srcDir)
+struct ImageAdder : public boost::static_visitor<void> {
+    const fs::path &srcDir;
+    ExternalFiles &ef;
+    std::size_t &offset;
+
+    ImageAdder(const fs::path &srcDir, ExternalFiles &ef, std::size_t &offset)
+        : srcDir(srcDir), ef(ef), offset(offset)
+    {}
+
+    void operator()(const ExternalImage &image) {
+        if (localPath(image.uri)) {
+            // local, embed
+            // TODO: embed image with the same uri only once
+
+            ef.files.emplace_back(srcDir / image.uri, offset);
+            const auto &file(ef.files.back());
+            offset += file.size;
+
+            BufferView bv(0, file.byteLength);
+            bv.byteOffset = file.offset;
+
+            BufferViewImage bvi(ef.bufferViews.size());
+            bvi.mimeType = file.mimeType;
+
+            ef.bufferViews.push_back(bv);
+            ef.images.push_back(bvi);
+        } else {
+            // keep
+            ef.images.push_back(image);
+        }
+    }
+
+    void operator()(const BufferViewImage &image) {
+        ef.images.push_back(image);
+    }
+
+    void operator()(const InlineImage &image) {
+        // embed local image
+        ef.files.emplace_back(image.data, offset);
+        const auto &file(ef.files.back());
+        offset += file.size;
+
+        BufferView bv(0, file.byteLength);
+        bv.byteOffset = file.offset;
+
+        BufferViewImage bvi(ef.bufferViews.size());
+        bvi.mimeType = image.mimeType;
+
+        ef.bufferViews.push_back(bv);
+        ef.images.push_back(bvi);
+    }
+};
+
+ExternalFiles collectFiles(const GLTF &gltf, const fs::path &srcDir)
 {
     ExternalFiles ef;
 
@@ -179,12 +229,14 @@ ExternalFiles collectFiles(GLTF gltf, const fs::path &srcDir)
 
     BufferMapping bufferMapping;
 
-    BufferAdder adder(srcDir, bufferMapping, ef, offset);
-
-    for (Index bufferId(0), ebufferId(gltf.buffers.size());
-         bufferId != ebufferId; ++bufferId)
+    // buffers
     {
-        boost::apply_visitor(adder, gltf.buffers[bufferId]);
+        BufferAdder adder(srcDir, bufferMapping, ef, offset);
+        for (Index bufferId(0), ebufferId(gltf.buffers.size());
+             bufferId != ebufferId; ++bufferId)
+        {
+            boost::apply_visitor(adder, gltf.buffers[bufferId]);
+        }
     }
 
     // generate new buffer views for updated buffers
@@ -212,26 +264,12 @@ ExternalFiles collectFiles(GLTF gltf, const fs::path &srcDir)
         ef.bufferViews.push_back(bv);
     }
 
-    // TODO: images;
-    for (const auto &image : gltf.images) {
-        const auto *rimage(boost::get<ExternalImage>(&image));
-        if (!rimage || !localPath(rimage->uri)) {
-            ef.images.push_back(image);
-            continue;
+    // images
+    {
+        ImageAdder adder(srcDir, ef, offset);
+        for (const auto &image : gltf.images) {
+            boost::apply_visitor(adder, image);
         }
-
-        ef.files.emplace_back(srcDir / rimage->uri, offset);
-        const auto &file(ef.files.back());
-        offset += file.size;
-
-        BufferView bv(0, file.byteLength);
-        bv.byteOffset = file.offset;
-
-        BufferViewImage bvi(ef.bufferViews.size());
-        bvi.mimeType = file.mimeType;
-
-        ef.bufferViews.push_back(bv);
-        ef.images.push_back(bvi);
     }
 
     // pad whole embedded buffer
@@ -244,10 +282,25 @@ ExternalFiles collectFiles(GLTF gltf, const fs::path &srcDir)
 
 void write(std::ostream &os, const ExternalFiles &ef)
 {
+    struct FileWriter : public boost::static_visitor<void> {
+        FileWriter(std::ostream &os) : os(os) {}
+        std::ostream &os;
+
+        void operator()(const fs::path &path) {
+            utility::ifstreambuf is(path.string());
+            os << is.rdbuf();
+            is.close();
+        }
+
+        void operator()(const Data *data) {
+            bin::write(os, data->data(), data->size());
+        }
+    };
+
+    FileWriter writer(os);
     for (const auto &file : ef.files) {
-        utility::ifstreambuf is(file.path.string());
-        os << is.rdbuf();
-        is.close();
+        boost::apply_visitor(writer, file.data);
+
         // pad
         for (auto padding(file.padding); padding; --padding) {
             os << '\0';
@@ -257,18 +310,14 @@ void write(std::ostream &os, const ExternalFiles &ef)
 
 } // namespace detail
 
-void glb(const fs::path &path, const GLTF &srcGltf, const fs::path &srcDir)
+void glb(std::ostream &os, const GLTF &srcGltf, const fs::path &srcDir)
 {
-    LOG(info1) << "Generating GLB in " << path  << ".";
-
-    utility::ofstreambuf os(path.string());
-
-    const auto ef(detail::collectFiles(srcGltf, srcDir));
+    auto ef(detail::collectFiles(srcGltf, srcDir));
 
     auto gltf(srcGltf);
-    gltf.buffers = ef.buffers;
-    gltf.bufferViews = ef.bufferViews;
-    gltf.images = ef.images;
+    std::swap(gltf.buffers, ef.buffers);
+    std::swap(gltf.bufferViews, ef.bufferViews);
+    std::swap(gltf.images, ef.images);
 
     const auto json([&]() -> std::string
     {
@@ -315,7 +364,13 @@ void glb(const fs::path &path, const GLTF &srcGltf, const fs::path &srcDir)
         detail::write(os, header);
         detail::write(os, ef);
     }
+}
 
+void glb(const fs::path &path, const GLTF &srcGltf, const fs::path &srcDir)
+{
+    LOG(info1) << "Generating GLB in " << path  << ".";
+    utility::ofstreambuf os(path.string());
+    glb(os, srcGltf, srcDir);
     os.close();
 }
 
