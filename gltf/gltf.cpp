@@ -30,9 +30,14 @@
 #include "utility/streams.hpp"
 #include "utility/format.hpp"
 
+#include "jsoncpp/as.hpp"
 #include "jsoncpp/io.hpp"
 
-#include "./gltf.hpp"
+#include "gltf.hpp"
+#include "detail.hpp"
+
+namespace fs = boost::filesystem;
+namespace ublas = boost::numeric::ublas;
 
 namespace gltf {
 
@@ -362,26 +367,26 @@ void build(Json::Value &object, const char *name
     }
 }
 
-void build(Json::Value &value, const GLTF &gltf)
+void build(Json::Value &value, const Model &model)
 {
-    common(value, gltf);
+    common(value, model);
 
-    build(value["asset"], gltf.asset);
-    build(value, "scenes", gltf.scenes);
-    build(value, "scene", gltf.scene);
-    build(value, "nodes", gltf.nodes);
-    build(value, "meshes", gltf.meshes);
-    build(value, "samplers", gltf.samplers);
-    build(value, "images", gltf.images);
-    build(value, "textures", gltf.textures);
-    build(value, "materials", gltf.materials);
-    build(value, "buffers", gltf.buffers);
-    build(value, "bufferViews", gltf.bufferViews);
-    build(value, "accessors", gltf.accessors);
+    build(value["asset"], model.asset);
+    build(value, "scenes", model.scenes);
+    build(value, "scene", model.scene);
+    build(value, "nodes", model.nodes);
+    build(value, "meshes", model.meshes);
+    build(value, "samplers", model.samplers);
+    build(value, "images", model.images);
+    build(value, "textures", model.textures);
+    build(value, "materials", model.materials);
+    build(value, "buffers", model.buffers);
+    build(value, "bufferViews", model.bufferViews);
+    build(value, "accessors", model.accessors);
 
     // extensions; TODO: dynamic?
-    build(value, "extensionsUsed", gltf.extensionsUsed);
-    build(value, "extensionsRequired", gltf.extensionsRequired);
+    build(value, "extensionsUsed", model.extensionsUsed);
+    build(value, "extensionsRequired", model.extensionsRequired);
 }
 
 } // namespace detail
@@ -393,7 +398,7 @@ boost::any emptyObject()
 
 math::Matrix4 zup2yup()
 {
-    math::Matrix4 m(boost::numeric::ublas::zero_matrix<double>(4, 4));
+    math::Matrix4 m(ublas::zero_matrix<double>(4, 4));
     m(0, 0) = 1.0;
     m(1, 2) = 1.0;
     m(2, 1) = -1.0;
@@ -401,21 +406,117 @@ math::Matrix4 zup2yup()
     return m;
 }
 
-void write(std::ostream &os, const GLTF &gltf)
+math::Matrix4 yup2zup()
+{
+    math::Matrix4 m(ublas::zero_matrix<double>(4, 4));
+    m(0, 0) = 1.0;
+    m(1, 2) = -1.0;
+    m(2, 1) = 1.0;
+    m(3, 3) = 1.0;
+    return m;
+}
+
+void write(std::ostream &os, const Model &model)
 {
     Json::Value value;
-    detail::build(value, gltf);
+    detail::build(value, model);
     Json::write(os, value, false);
 }
 
-void write(const boost::filesystem::path &path, const GLTF &gltf)
+void write(const fs::path &path, const Model &model)
 {
-    LOG(info1) << "Saving glTF to " << path  << ".";
+    LOG(info1) << "Saving model to " << path  << ".";
     std::ofstream f;
     f.exceptions(std::ios::badbit | std::ios::failbit);
     f.open(path.string(), std::ios_base::out);
-    write(f, gltf);
+    write(f, model);
     f.close();
+}
+
+namespace detail {
+
+void common(CommonBase &cb, const Json::Value &value)
+{
+    if (value.isMember("extensions")) {
+        const auto &extensions(value["extensions"]);
+        for (const auto &name : extensions.getMemberNames()) {
+            cb.extensions.insert(Extensions::value_type
+                                 (name, extensions[name]));
+        }
+    }
+    if (value.isMember("extras")) {
+        cb.extras = value["extras"];
+    }
+}
+
+void namedCommon(NamedCommonBase &ncb, const Json::Value &value)
+{
+    common(ncb, value);
+    Json::get(ncb.name, value, "name");
+}
+
+template <typename T>
+void parse(boost::optional<T> &dst, const Json::Value &value
+           , const char *member);
+
+template <typename T>
+void parse(std::vector<T> &dst, const Json::Value &value
+           , const char *member);
+
+void parse(std::vector<std::string> &list, const Json::Value &value)
+{
+    if (!value.isArray()) {
+        LOGTHROW(err1, Json::Error)
+            << "Expected JSON array.";
+    }
+
+    for (const auto &item : value) {
+        if (!item.isString()) {
+            LOGTHROW(err1, Json::Error)
+                << "Expected JSON array of strings.";
+        }
+        list.push_back(item.asString());
+    }
+}
+
+void parse(std::vector<std::string> &list, const Json::Value &value
+           , const char *member)
+{
+    if (!value.isMember(member)) { return; }
+    parse(list, value["member"]);
+}
+
+void parse(Model &model, const Json::Value &value)
+{
+    common(model, value);
+
+#if 0
+    build(value["asset"], model.asset);
+    build(value, "scenes", model.scenes);
+#endif
+    Json::get(model.scene, value, "scene");
+#if 0
+    build(value, "nodes", model.nodes);
+    build(value, "meshes", model.meshes);
+    build(value, "samplers", model.samplers);
+    build(value, "images", model.images);
+    build(value, "textures", model.textures);
+    build(value, "materials", model.materials);
+    build(value, "buffers", model.buffers);
+    build(value, "bufferViews", model.bufferViews);
+    build(value, "accessors", model.accessors);
+#endif
+
+    parse(model.extensionsUsed, value, "extensionsUsed");
+    parse(model.extensionsRequired, value, "extensionsRequired");
+}
+
+} // namespace detail
+
+void read(Model &model, const Json::Value &content, const fs::path &path)
+{
+    parse(model, value);
+    (void) path;
 }
 
 } // namespace gltf

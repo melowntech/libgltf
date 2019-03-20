@@ -8,6 +8,7 @@ define_module(LIBRARY gltf=${gltf_VERSION}
 
 set(gltf_SOURCES
   gltf.hpp gltf.cpp
+  detail.hpp
   glb.cpp
 )
 

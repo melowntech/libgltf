@@ -36,20 +36,25 @@
 #include "utility/format.hpp"
 #include "utility/binaryio.hpp"
 #include "utility/filesystem.hpp"
+#include "utility/enum-io.hpp"
 
 #include "jsoncpp/as.hpp"
 #include "jsoncpp/io.hpp"
 
-#include "./gltf.hpp"
+#include "gltf.hpp"
+#include "detail.hpp"
 
 namespace fs = boost::filesystem;
 namespace ba = boost::algorithm;
+namespace bio = boost::iostreams;
 
 namespace bin = utility::binaryio;
 
 namespace gltf {
 
 namespace detail {
+
+const char MAGIC[4] = { 'g', 'l', 'T', 'F' };
 
 struct GlbHeader {
     std::uint32_t version;
@@ -69,14 +74,17 @@ struct ChunkHeader {
     std::uint32_t length;
     Type type;
 
-    ChunkHeader(Type type) : length(), type(type) {}
+    ChunkHeader(Type type = Type()) : length(), type(type) {}
 
     static std::size_t size() { return 8; }
 };
 
+UTILITY_GENERATE_ENUM_IO(ChunkHeader::Type,
+                         ((json))((bin)))
+
 void write(std::ostream &os, const GlbHeader &header)
 {
-    os << "glTF";
+    bin::write(os, MAGIC);
     bin::write(os, header.version);
     bin::write(os, header.length);
 }
@@ -244,7 +252,7 @@ struct ImageAdder : public boost::static_visitor<void> {
     }
 };
 
-ExternalFiles collectFiles(const GLTF &gltf, const fs::path &srcDir)
+ExternalFiles collectFiles(const Model &model, const fs::path &srcDir)
 {
     ExternalFiles ef;
 
@@ -258,18 +266,18 @@ ExternalFiles collectFiles(const GLTF &gltf, const fs::path &srcDir)
     // buffers
     {
         BufferAdder adder(srcDir, bufferMapping, ef, offset);
-        for (Index bufferId(0), ebufferId(gltf.buffers.size());
+        for (Index bufferId(0), ebufferId(model.buffers.size());
              bufferId != ebufferId; ++bufferId)
         {
-            boost::apply_visitor(adder, gltf.buffers[bufferId]);
+            boost::apply_visitor(adder, model.buffers[bufferId]);
         }
     }
 
     // generate new buffer views for updated buffers
-    for (Index bvId(0), ebvId(gltf.bufferViews.size());
+    for (Index bvId(0), ebvId(model.bufferViews.size());
          bvId != ebvId; ++bvId)
     {
-        auto bv(gltf.bufferViews[bvId]);
+        auto bv(model.bufferViews[bvId]);
         const auto &mapping(bufferMapping[bv.buffer]);
         if (mapping.second) {
             // external, just rewrite
@@ -293,7 +301,7 @@ ExternalFiles collectFiles(const GLTF &gltf, const fs::path &srcDir)
     // images
     {
         ImageAdder adder(srcDir, ef, offset);
-        for (const auto &image : gltf.images) {
+        for (const auto &image : model.images) {
             boost::apply_visitor(adder, image);
         }
     }
@@ -336,20 +344,20 @@ void write(std::ostream &os, const ExternalFiles &ef)
 
 } // namespace detail
 
-void glb(std::ostream &os, const GLTF &srcGltf, const fs::path &srcDir)
+void glb(std::ostream &os, const Model &srcModel, const fs::path &srcDir)
 {
-    auto ef(detail::collectFiles(srcGltf, srcDir));
+    auto ef(detail::collectFiles(srcModel, srcDir));
 
-    auto gltf(srcGltf);
-    std::swap(gltf.buffers, ef.buffers);
-    std::swap(gltf.bufferViews, ef.bufferViews);
-    std::swap(gltf.images, ef.images);
+    auto model(srcModel);
+    std::swap(model.buffers, ef.buffers);
+    std::swap(model.bufferViews, ef.bufferViews);
+    std::swap(model.images, ef.images);
 
     const auto json([&]() -> std::string
     {
-        // serialize glTF JSON and pad it with spaces
+        // serialize model JSON and pad it with spaces
         std::ostringstream tmp;
-        write(tmp, gltf);
+        write(tmp, model);
         auto padding(detail::computePadding(tmp.tellp()));
         while (padding--) { tmp << ' '; }
         return tmp.str();
@@ -375,7 +383,7 @@ void glb(std::ostream &os, const GLTF &srcGltf, const fs::path &srcDir)
         detail::write(os, header);
     }
 
-    // write glTF JSON chunk
+    // write model JSON chunk
     {
         detail::ChunkHeader header(detail::ChunkHeader::Type::json);
         header.length = json.size();
@@ -392,12 +400,96 @@ void glb(std::ostream &os, const GLTF &srcGltf, const fs::path &srcDir)
     }
 }
 
-void glb(const fs::path &path, const GLTF &srcGltf, const fs::path &srcDir)
+namespace detail {
+
+void read(std::istream &is, GlbHeader &header
+          , const boost::filesystem::path &path)
+{
+    char magic[4];
+    bin::read(is, magic);
+    if (std::memcmp(magic, MAGIC, sizeof(MAGIC))) {
+        LOGTHROW(err2, std::runtime_error)
+            << "File " << path << " is not a glTF Model file.";
+    }
+
+    bin::read(is, header.version);
+    bin::read(is, header.length);
+}
+
+void read(std::istream &is, ChunkHeader &header, const fs::path &path
+          , ChunkHeader::Type expectedType, int index)
+{
+    bin::read(is, header.length);
+    header.type = static_cast<ChunkHeader::Type>
+        (bin::read<std::uint32_t>(is));
+
+    if (expectedType != header.type) {
+        LOGTHROW(err2, std::runtime_error)
+            << "GLB file " << path << ": chunk #" << index
+            << " has not " << expectedType << " type.";
+    }
+}
+
+void readJson(Json::Value &json, std::istream &is
+              , const boost::filesystem::path &path)
+{
+    ChunkHeader header;
+    read(is, header, path, ChunkHeader::Type::json, 0);
+
+    // read feature table to temporary buffer
+    std::vector<char> buf(header.length);
+    bin::read(is, buf);
+
+    // wrap buffer to a stream
+    bio::stream_buffer<bio::array_source>
+        buffer(buf.data(), buf.data() + buf.size());
+    std::istream s(&buffer);
+    s.exceptions(std::ios::badbit | std::ios::failbit);
+
+    // and read
+    if (!read(s, json)) {
+        LOGTHROW(err2, std::runtime_error)
+            << "Unable to read JSON chunk from file "
+            << path << ".";
+    }
+}
+
+Data readData(std::istream &is, const boost::filesystem::path &path)
+{
+    ChunkHeader header;
+    read(is, header, path, ChunkHeader::Type::bin, 1);
+
+    Data data(header.length);
+    bin::read(is, data);
+    return data;
+}
+
+} // namespace detail
+
+void glb(const fs::path &path, const Model &srcModel, const fs::path &srcDir)
 {
     LOG(info1) << "Generating GLB in " << path  << ".";
     utility::ofstreambuf os(path.string());
-    glb(os, srcGltf, srcDir);
+    glb(os, srcModel, srcDir);
     os.close();
+}
+
+Model glb(std::istream &is, const fs::path &path)
+{
+    Model model;
+
+    detail::GlbHeader header;
+    detail::read(is, header, path);
+
+    Json::Value content;
+    detail::readJson(content, is, path);
+
+    LOG(info4) << "content: " << log(content);
+
+    model.buffers.emplace_back(InlineBuffer{detail::readData(is, path)});
+    read(model, content, path);
+
+    return model;
 }
 
 } // namespace gltf

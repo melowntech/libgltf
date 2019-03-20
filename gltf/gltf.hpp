@@ -24,8 +24,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef vef2gltf_gltf_hpp_included_
-#define vef2gltf_gltf_hpp_included_
+#ifndef gltf_gltf_hpp_included_
+#define gltf_gltf_hpp_included_
 
 #include <iosfwd>
 
@@ -68,6 +68,11 @@ boost::any emptyObject();
  *  coordinate system (used in glTF).
  */
 math::Matrix4 zup2yup();
+
+/** Returns matrix that transforms from Y-up coordinate system (used in glTF) to
+ *  Z-up coordinate system.
+ */
+math::Matrix4 yup2zup();
 
 UTILITY_GENERATE_ENUM(AttributeType,
                       ((scalar)("SCALAR"))
@@ -125,6 +130,9 @@ struct NamedCommonBase : CommonBase {
 
 struct InlineBuffer : NamedCommonBase {
     Data data;
+
+    InlineBuffer() = default;
+    InlineBuffer(Data &&data) : data(std::move(data)) {}
 };
 
 struct ExternalBuffer : NamedCommonBase {
@@ -263,7 +271,7 @@ struct Sampler : NamedCommonBase {
     using list = std::vector<Sampler>;
 };
 
-using Image = boost::variant<InlineImage, ExternalImage, BufferViewImage> ;
+using Image = boost::variant<InlineImage, ExternalImage, BufferViewImage>;
 using Images = std::vector<Image>;
 
 struct Version {
@@ -280,7 +288,7 @@ struct Asset : CommonBase {
     boost::optional<Version> minVersion;
 };
 
-struct GLTF : CommonBase {
+struct Model : CommonBase {
     Asset asset;
     Scene::list scenes;
     OptIndex scene;
@@ -308,7 +316,7 @@ template <typename T, typename ...Args>
 Index add(std::vector<T> &vector, Args &&...args)
 {
     Index index;
-    UTILITY_OMP(critical(gltf_add))
+    UTILITY_OMP(critical(model_add))
     {
         index = vector.size();
         vector.emplace_back(std::forward<Args>(args)...);
@@ -316,24 +324,32 @@ Index add(std::vector<T> &vector, Args &&...args)
     return index;
 }
 
-/** Write a glTF JSON file to an output stream.
+/** Write a model to an output stream.
  */
-void write(std::ostream &os, const GLTF &gltf);
+void write(std::ostream &os, const Model &model);
 
-/** Write a glTF JSON file to an output file.
+/** Write a model to an output file.
  */
-void write(const boost::filesystem::path &path, const GLTF &gltf);
+void write(const boost::filesystem::path &path, const Model &model);
 
-/** Generate GLB file from glTF JSON and external files in srcDir.
+/** Generate GLB file from a model and external files in srcDir.
  */
-void glb(const boost::filesystem::path &path, const GLTF &gltf
+void glb(const boost::filesystem::path &path, const Model &model
          , const boost::filesystem::path &srcDir);
 
-/** Generate GLB file from glTF JSON and external files in srcDir.
+/** Generate GLB file from a model and external files in srcDir.
  */
-void glb(std::ostream &os, const GLTF &gltf
+void glb(std::ostream &os, const Model &model
          , const boost::filesystem::path &srcDir);
+
+/** Load a model from a GLB file.
+ */
+Model glb(std::istream &is, const boost::filesystem::path &path);
+
+/** Deprecated, only for compatibility with older clients.
+ */
+typedef Model GLTF;
 
 } // namespace gltf
 
-#endif // vef2gltf_gltf_hpp_included_
+#endif // gltf_gltf_hpp_included_
