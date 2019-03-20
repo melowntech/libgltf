@@ -515,7 +515,7 @@ void parse(Model &model, const Json::Value &value)
 
 void read(Model &model, const Json::Value &content, const fs::path &path)
 {
-    parse(model, value);
+    detail::parse(model, content);
     (void) path;
 }
 
