@@ -219,7 +219,7 @@ struct Texture : NamedCommonBase {
     Index sampler;
     Index source;
 
-    Texture(Index sampler, Index source)
+    Texture(Index sampler = 0, Index source = 0)
         : sampler(sampler), source(source)
     {}
 
@@ -259,7 +259,7 @@ struct BufferViewImage : NamedCommonBase {
     Index bufferView;
     std::string mimeType;
 
-    BufferViewImage(Index bufferView) : bufferView(bufferView) {}
+    BufferViewImage(Index bufferView = 0) : bufferView(bufferView) {}
 };
 
 struct Sampler : NamedCommonBase {
@@ -279,7 +279,7 @@ struct Version {
     int minor;
 
     Version(int major = 2, int minor = 0) : major(major), minor(minor) {}
- };
+};
 
 struct Asset : CommonBase {
     OptString copyright;

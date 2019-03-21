@@ -24,24 +24,34 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef gltf_detail_hpp_included_
-#define gltf_detail_hpp_included_
+#ifndef gltf_io_hpp_included_
+#define gltf_io_hpp_included_
+
+#include <iostream>
+
+#include <boost/io/ios_state.hpp>
+
+#include "utility/streams.hpp"
 
 #include "gltf.hpp"
 
-#include "jsoncpp/json.hpp"
-
 namespace gltf {
 
-/** Read data from JSON value into the model.
- *
- *  NB: This function is called from GLB read function with preinitialized first
- *  buffer from the GLB binary buffer.
- */
-void read(Model &model, const Json::Value &content
-          , const boost::filesystem::path &path
-          , int version = -1);
+template<typename CharT, typename Traits>
+inline std::basic_ostream<CharT, Traits>&
+operator<<(std::basic_ostream<CharT, Traits> &os, const Version &v)
+{
+    return os << v.major << '.' << v.minor;
+}
+
+template<typename CharT, typename Traits>
+inline std::basic_istream<CharT, Traits>&
+operator>>(std::basic_istream<CharT, Traits> &is, Version &v)
+{
+    boost::io::ios_flags_saver ifs(is);
+    return is >> std::noskipws >> v.major >> utility::expect('.') >> v.minor;
+}
 
 } // namespace gltf
 
-#endif // gltf_detail_hpp_included_
+#endif // gltf_io_hpp_included_

@@ -67,20 +67,23 @@ struct GlbHeader {
 
 struct ChunkHeader {
     enum class Type : std::uint32_t {
-        json = 0x4e4f534a
-        , bin = 0x004e4942
+       json = 0x4e4f534a
+       , bin = 0x004e4942
+       , json_v1 = 0x0 // v1; deprecated
     };
 
     std::uint32_t length;
     Type type;
 
-    ChunkHeader(Type type = Type()) : length(), type(type) {}
+    ChunkHeader(std::uint32_t length = 0, Type type = Type())
+        : length(length), type(type)
+    {}
 
     static std::size_t size() { return 8; }
 };
 
 UTILITY_GENERATE_ENUM_IO(ChunkHeader::Type,
-                         ((json))((bin)))
+                         ((json))((bin))((json_v1)))
 
 void write(std::ostream &os, const GlbHeader &header)
 {
@@ -385,16 +388,16 @@ void glb(std::ostream &os, const Model &srcModel, const fs::path &srcDir)
 
     // write model JSON chunk
     {
-        detail::ChunkHeader header(detail::ChunkHeader::Type::json);
-        header.length = json.size();
+        detail::ChunkHeader header
+            (json.size(), detail::ChunkHeader::Type::json);
         detail::write(os, header);
         bin::write(os, json.data(), json.size());
     }
 
     // write BIN chunk
     {
-        detail::ChunkHeader header(detail::ChunkHeader::Type::bin);
-        header.length = ef.dataLength;
+        detail::ChunkHeader header
+            (ef.dataLength, detail::ChunkHeader::Type::bin);
         detail::write(os, header);
         detail::write(os, ef);
     }
@@ -430,11 +433,12 @@ void read(std::istream &is, ChunkHeader &header, const fs::path &path
     }
 }
 
-void readJson(Json::Value &json, std::istream &is
-              , const boost::filesystem::path &path)
+std::uint32_t readJson(Json::Value &json, std::istream &is
+                       , const boost::filesystem::path &path
+                       , ChunkHeader::Type type = ChunkHeader::Type::json)
 {
     ChunkHeader header;
-    read(is, header, path, ChunkHeader::Type::json, 0);
+    read(is, header, path, type, 0);
 
     // read feature table to temporary buffer
     std::vector<char> buf(header.length);
@@ -452,12 +456,19 @@ void readJson(Json::Value &json, std::istream &is
             << "Unable to read JSON chunk from file "
             << path << ".";
     }
+
+    return header.length;
 }
 
-Data readData(std::istream &is, const boost::filesystem::path &path)
+Data readData(std::istream &is, const boost::filesystem::path &path
+              , const boost::optional<ChunkHeader> &ch = boost::none)
 {
     ChunkHeader header;
-    read(is, header, path, ChunkHeader::Type::bin, 1);
+    if (ch) {
+        header = *ch;
+    } else {
+        read(is, header, path, ChunkHeader::Type::bin, 1);
+    }
 
     Data data(header.length);
     bin::read(is, data);
@@ -476,18 +487,45 @@ void glb(const fs::path &path, const Model &srcModel, const fs::path &srcDir)
 
 Model glb(std::istream &is, const fs::path &path)
 {
-    Model model;
 
     detail::GlbHeader header;
     detail::read(is, header, path);
 
+    Model model;
     Json::Value content;
-    detail::readJson(content, is, path);
 
-    LOG(info4) << "content: " << log(content);
+    switch (header.version) {
+    case 1: {
+        // only json chunk has header
+        const auto jsonSize
+            (detail::readJson
+             (content, is, path, detail::ChunkHeader::Type::json_v1));
+        const auto soFar(header.size() + detail::ChunkHeader::size()
+                         + jsonSize);
+        if (soFar < header.length) {
+            detail::ChunkHeader ch(header.length - soFar
+                                   , detail::ChunkHeader::Type::bin);
+            model.buffers.emplace_back
+                (InlineBuffer{detail::readData(is, path, ch)});
+        } else if (soFar > header.length) {
+            LOGTHROW(err2, std::runtime_error)
+                << "Invalid size of binary v. 1.0 chunk.";
+        }
+        // FIXME: v 1.0 parsing not implemented so far
+    } break;
 
-    model.buffers.emplace_back(InlineBuffer{detail::readData(is, path)});
-    read(model, content, path);
+    case 2:
+        detail::readJson(content, is, path);
+        model.buffers.emplace_back(InlineBuffer{detail::readData(is, path)});
+        break;
+
+    default:
+        LOGTHROW(err2, std::runtime_error)
+            << "Unsupported GLB version " << header.version << ".";
+        break;
+    }
+
+    read(model, content, path, header.version);
 
     return model;
 }
