@@ -24,6 +24,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "dbglog/dbglog.hpp"
 
 #include "gltf.hpp"
 
