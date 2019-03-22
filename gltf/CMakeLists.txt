@@ -10,6 +10,7 @@ set(gltf_SOURCES
   gltf.hpp gltf.cpp
   detail.hpp
   glb.cpp
+  meshloader.hpp meshloader.cpp
 )
 
 add_library(gltf STATIC ${gltf_SOURCES})
