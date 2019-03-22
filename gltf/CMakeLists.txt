@@ -10,6 +10,7 @@ set(gltf_SOURCES
   gltf.hpp gltf.cpp
   detail.hpp
   glb.cpp
+  validate.cpp
   meshloader.hpp meshloader.cpp
 )
 
