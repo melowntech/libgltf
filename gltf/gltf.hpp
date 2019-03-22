@@ -96,11 +96,12 @@ enum class ComponentType {
 UTILITY_GENERATE_ENUM(AttributeSemantic,
                       ((position)("POSITION"))
                       ((normal)("NORMAL"))
-                      ((target)("TARGET"))
+                      ((tangent)("TANGENT"))
                       ((texCoord0)("TEXCOORD_0"))
                       ((texCoord1)("TEXCOORD_1"))
                       ((color0)("COLOR_0"))
                       ((joints0)("JOINTS_0"))
+                      ((weights0)("WEIGHTS_0"))
                       )
 
 enum class PrimitiveMode {
@@ -147,15 +148,15 @@ using Buffers = std::vector<Buffer>;
 
 struct BufferView : NamedCommonBase {
     Index buffer;
-    boost::optional<std::size_t> byteOffset;
+    std::size_t byteOffset;
     std::size_t byteLength;
     boost::optional<std::size_t> byteStride;
     boost::optional<Target> target;
 
     BufferView(Index buffer = 0, std::size_t byteLength = 0)
-        : buffer(buffer), byteLength(byteLength) {}
+        : buffer(buffer), byteOffset(0), byteLength(byteLength) {}
 
-    using list =  std::vector<BufferView>;
+    using list = std::vector<BufferView>;
 };
 
 using ComponentValue = boost::variant<int, double>;
@@ -163,27 +164,29 @@ using ComponentValues = std::vector<ComponentValue>;
 
 struct Accessor : NamedCommonBase {
     OptIndex bufferView;
-    boost::optional<std::size_t> offset;
+    std::size_t offset;
     ComponentType componentType;
-    boost::optional<bool> normalized;
+    bool normalized = false;
     std::size_t count;
     AttributeType type;
     ComponentValues min;
     ComponentValues max;
 
+    using list = std::vector<Accessor>;
+
     Accessor(ComponentType componentType = ComponentType::byte
              , std::size_t count = 0
              , AttributeType type = AttributeType::scalar)
-        : componentType(componentType), count(count), type(type)
+        : offset(), componentType(componentType), count(count), type(type)
     {}
 
-    using list =  std::vector<Accessor>;
+    void validate(AttributeSemantic semantic) const;
 };
 
 struct Scene : NamedCommonBase {
     Indices nodes;
 
-    using list =  std::vector<Scene>;
+    using list = std::vector<Scene>;
 };
 
 struct Node : NamedCommonBase {
@@ -195,24 +198,28 @@ struct Node : NamedCommonBase {
     boost::optional<math::Point3d> translation;
     OptIndex mesh;
 
-    using list =  std::vector<Node>;
+    using list = std::vector<Node>;
 };
 
 struct Primitive : CommonBase {
+    static constexpr PrimitiveMode defaultMode = PrimitiveMode::triangles;
+
     using Attributes = std::map<AttributeSemantic, Index>;
     Attributes attributes;
     OptIndex indices;
     OptIndex material;
-    boost::optional<PrimitiveMode> mode;
+    PrimitiveMode mode = defaultMode;
     Indices targets;
 
-    using list =  std::vector<Primitive>;
+    using list = std::vector<Primitive>;
+
+    OptIndex attribute(AttributeSemantic semantic) const;
 };
 
 struct Mesh : NamedCommonBase {
     Primitive::list primitives;
 
-    using list =  std::vector<Mesh>;
+    using list = std::vector<Mesh>;
 };
 
 struct Texture : NamedCommonBase {
@@ -223,12 +230,14 @@ struct Texture : NamedCommonBase {
         : sampler(sampler), source(source)
     {}
 
-    using list =  std::vector<Texture>;
+    using list = std::vector<Texture>;
 };
 
 struct TextureInfo : CommonBase  {
+    static constexpr Index defaultTexCoord = 0;
+
     Index index;
-    OptIndex texCoord;
+    Index texCoord = defaultTexCoord;
     boost::optional<double> scale;
 
     TextureInfo(Index index = 0) : index(index) {}
@@ -243,7 +252,7 @@ struct PbrMetallicRoughness : CommonBase  {
 struct Material : NamedCommonBase {
     boost::optional<PbrMetallicRoughness> pbrMetallicRoughness;
 
-    using list =  std::vector<Material>;
+    using list = std::vector<Material>;
 };
 
 struct InlineImage : NamedCommonBase {
@@ -349,6 +358,15 @@ Model glb(std::istream &is, const boost::filesystem::path &path);
 /** Deprecated, only for compatibility with older clients.
  */
 typedef Model GLTF;
+
+// inlines
+
+inline OptIndex Primitive::attribute(AttributeSemantic semantic) const
+{
+    auto fattributes(attributes.find(semantic));
+    if (fattributes == attributes.end()) { return boost::none; }
+    return fattributes->second;
+}
 
 } // namespace gltf
 

@@ -173,7 +173,9 @@ void build(Json::Value &value, const BufferView &bufferView)
 {
     namedCommon(value, bufferView);
     build(value["buffer"], bufferView.buffer);
-    build(value, "byteOffset", bufferView.byteOffset);
+    if (bufferView.byteOffset) {
+        build(value, "byteOffset", bufferView.byteOffset);
+    }
     build(value["byteLength"], Json::UInt64(bufferView.byteLength));
     build(value, "byteStride", bufferView.byteStride);
     build(value, "target", bufferView.target);
@@ -195,9 +197,13 @@ void build(Json::Value &value, const Accessor &accessor)
 {
     namedCommon(value, accessor);
     build(value, "bufferView", accessor.bufferView);
-    build(value, "offset", accessor.offset);
+    if (accessor.offset) {
+        build(value, "byteOffset", accessor.offset);
+    }
     build(value["componentType"], static_cast<int>(accessor.componentType));
-    build(value, "normalized", accessor.normalized);
+    if (accessor.normalized) {
+        build(value, "normalized", accessor.normalized);
+    }
     build(value["count"], Json::UInt64(accessor.count));
     build(value["type"], boost::lexical_cast<std::string>(accessor.type));
     build(value, "max", accessor.max);
@@ -231,7 +237,9 @@ void build(Json::Value &value, const Primitive &primitive)
     }
     build(value, "indices", primitive.indices);
     build(value, "material", primitive.material);
-    build(value, "mode", primitive.mode);
+    if (primitive.mode != Primitive::defaultMode) {
+        build(value, "mode", primitive.mode);
+    }
     build(value, "targets", primitive.targets);
 }
 
@@ -289,7 +297,9 @@ void build(Json::Value &value, const TextureInfo &textureInfo)
 {
     common(value, textureInfo);
     build(value["index"], textureInfo.index);
-    build(value, "texCoord", textureInfo.texCoord);
+    if (textureInfo.texCoord != TextureInfo::defaultTexCoord) {
+        build(value, "texCoord", textureInfo.texCoord);
+    }
     build(value, "scale", textureInfo.scale);
 }
 
@@ -458,6 +468,9 @@ void parse(boost::optional<T> &dst, const Json::Value &value
            , const char *member);
 
 template <typename T>
+bool parseOpt(T &dst, const Json::Value &value, const char *member);
+
+template <typename T>
 void parse(std::vector<T> &dst, const Json::Value &value
            , const char *member);
 
@@ -536,7 +549,9 @@ void parse(TextureInfo &textureInfo, const Json::Value &value)
 {
     common(textureInfo, value);
     Json::get(textureInfo.index, value, "index");
-    Json::get(textureInfo.texCoord, value, "texCoord");
+    if (!Json::getOpt(textureInfo.texCoord, value, "texCoord")) {
+        textureInfo.texCoord = TextureInfo::defaultTexCoord;
+    }
     Json::get(textureInfo.scale, value, "scale");
 }
 
@@ -621,7 +636,9 @@ void parse(BufferView &bufferView, const Json::Value &value)
     namedCommon(bufferView, value);
 
     Json::get(bufferView.buffer, value, "buffer");
-    Json::get(bufferView.byteOffset, value, "byteOffset");
+    if (!Json::getOpt(bufferView.byteOffset, value, "byteOffset")) {
+        bufferView.byteOffset = 0;
+    }
     Json::get(bufferView.byteLength, value, "byteLength");
     Json::get(bufferView.byteStride, value, "byteStride");
     parse(bufferView.target, value, "target");
@@ -631,9 +648,13 @@ void parse(Accessor &accessor, const Json::Value &value)
 {
     namedCommon(accessor, value);
     Json::get(accessor.bufferView, value, "bufferView");
-    Json::get(accessor.offset, value, "offset");
+    if (!Json::getOpt(accessor.offset, value, "byteOffset")) {
+        accessor.offset = 0;
+    }
     parse(accessor.componentType, value["componentType"]);
-    Json::get(accessor.normalized, value, "normalized");
+    if (!Json::getOpt(accessor.normalized, value, "normalized")) {
+        accessor.normalized = false;
+    }
     Json::get(accessor.count, value, "count");
     Json::get(accessor.type, value, "type");
     parse(accessor.max, value, "max");
@@ -710,7 +731,9 @@ void parse(Primitive &primitive, const Json::Value &value)
 
     Json::get(primitive.indices, value, "indices");
     Json::get(primitive.material, value, "material");
-    parse(primitive.mode, value, "mode");
+    if (!parseOpt(primitive.mode, value, "mode")) {
+        primitive.mode = Primitive::defaultMode;
+    }
     parse(primitive.targets, value, "targets");
 }
 
@@ -841,6 +864,17 @@ void parse(boost::optional<T> &dst, const Json::Value &value
 }
 
 template <typename T>
+bool parseOpt(T &dst, const Json::Value &value
+              , const char *member)
+{
+    if (value.isMember(member)) {
+        parse(dst, value[member]);
+        return true;
+    }
+    return false;
+}
+
+template <typename T>
 void parse(std::vector<T> &dst, const Json::Value &value
            , const char *member)
 {
@@ -885,6 +919,217 @@ void read(Model &model, const Json::Value &content, const fs::path &path
     }
 
     detail::parse(model, content);
+}
+
+namespace {
+
+void validateFloat3(const Accessor &a, AttributeSemantic semantic) {
+    if ((a.type != AttributeType::vec3)
+        || (a.componentType != ComponentType::float_)
+        || a.normalized)
+    {
+        LOGTHROW(err1, std::runtime_error)
+            << "Attribute with semantic <" << semantic
+            << "> must be VEC3(float).";
+    }
+}
+
+void validateFloat4(const Accessor &a, AttributeSemantic semantic) {
+    if ((a.type != AttributeType::vec4)
+        || (a.componentType != ComponentType::float_)
+        || a.normalized)
+    {
+        LOGTHROW(err1, std::runtime_error)
+            << "Attribute with semantic <" << semantic
+            << "> must be VEC4(float).";
+    }
+}
+
+void validateTexCoord(const Accessor &a, AttributeSemantic semantic) {
+    if (a.type != AttributeType::vec2) {
+        LOGTHROW(err1, std::runtime_error)
+            << "Attribute with semantic <" << semantic
+            << "> must be VEC2(float|normalized unsinged byte"
+            "|normalized unsinged short).";
+    }
+
+    switch (a.componentType) {
+    case ComponentType::float_:
+        if (a.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Attribute with semantic <" << semantic
+                << "> must be VEC2(float).";
+        }
+        return;
+
+    case ComponentType::ubyte:
+        if (!a.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Attribute with semantic <" << semantic
+                << "> must be VEC2(normalized unsigned byte).";
+        }
+        return;
+
+    case ComponentType::ushort:
+        if (!a.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Attribute with semantic <" << semantic
+                << "> must be VEC2(normalized unsigned short).";
+        }
+        return;
+
+    default:
+        LOGTHROW(err1, std::runtime_error)
+            << "Attribute with semantic <" << semantic
+            << "> must be VEC2(float|normalized unsigned byte"
+            "|normalized unsigned short).";
+        return;
+    }
+}
+
+void validateColor(const Accessor &a, AttributeSemantic semantic) {
+    if ((a.type != AttributeType::vec3)
+        && (a.type != AttributeType::vec4))
+    {
+        LOGTHROW(err1, std::runtime_error)
+            << "Attribute with semantic <" << semantic
+            << "> must be (VEC3|VEC4)(float|normalized unsinged byte"
+            "|normalized unsinged short).";
+    }
+
+    switch (a.componentType) {
+    case ComponentType::float_:
+        if (a.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Attribute with semantic <" << semantic
+                << "> must be " << a.type << "(float).";
+        }
+        return;
+
+    case ComponentType::ubyte:
+        if (!a.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Attribute with semantic <" << semantic
+                << "> must be " << a.type << "(normalized unsigned byte).";
+        }
+        return;
+
+    case ComponentType::ushort:
+        if (!a.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Attribute with semantic <" << semantic
+                << "> must be " << a.type << "(normalized unsigned short).";
+        }
+        return;
+
+    default:
+        LOGTHROW(err1, std::runtime_error)
+            << "Attribute with semantic <" << semantic
+            << "> must be " << a.type << "(float|normalized unsinged byte"
+            "|normalized unsinged short).";
+        return;
+    }
+}
+
+void validateJoints(const Accessor &a, AttributeSemantic semantic) {
+    if (a.type != AttributeType::vec4) {
+        LOGTHROW(err1, std::runtime_error)
+            << "Attribute with semantic <" << semantic
+            << "> must be VEC4(unsigned byte|unsinged short).";
+    }
+
+    switch (a.componentType) {
+    case ComponentType::ubyte:
+        if (a.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Attribute with semantic <" << semantic
+                << "> must be VEC4(unsigned byte).";
+        }
+        return;
+
+    case ComponentType::ushort:
+        if (a.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Attribute with semantic <" << semantic
+                << "> must be VEC4(unsigned short).";
+        }
+        return;
+
+    default:
+        LOGTHROW(err1, std::runtime_error)
+            << "Attribute with semantic <" << semantic
+            << "> must be VEC4(unsigned byte|unsigned short).";
+        return;
+    }
+}
+
+void validateWeights(const Accessor &a, AttributeSemantic semantic) {
+    if (a.type != AttributeType::vec3) {
+        LOGTHROW(err1, std::runtime_error)
+            << "Attribute with semantic <" << semantic
+            << "> must be VEC4float|normalized unsinged byte"
+            "|normalized unsinged short).";
+    }
+
+    switch (a.componentType) {
+    case ComponentType::float_:;
+        if (a.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Attribute with semantic <" << semantic
+                << "> must be VEC4(float).";
+        }
+        return;
+
+    case ComponentType::ubyte:
+        if (!a.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Attribute with semantic <" << semantic
+                << "> must be VEC4(normalized unsigned byte).";
+        }
+        return;
+
+    case ComponentType::ushort:
+        if (!a.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Attribute with semantic <" << semantic
+                << "> must be VEC4(normalized unsigned short).";
+        }
+        return;
+
+    default:
+        LOGTHROW(err1, std::runtime_error)
+            << "Attribute with semantic <" << semantic
+            << "> must be VEC4(float|normalized unsinged byte"
+            "|normalized unsinged short).";
+        return;
+    }
+}
+
+} // namespace
+
+void Accessor::validate(AttributeSemantic semantic) const
+{
+    switch (semantic) {
+    case AttributeSemantic::position:
+    case AttributeSemantic::normal:
+        return validateFloat3(*this, semantic);
+
+    case AttributeSemantic::tangent:
+        return validateFloat4(*this, semantic);
+
+    case AttributeSemantic::texCoord0:
+    case AttributeSemantic::texCoord1:
+        return validateTexCoord(*this, semantic);
+
+    case AttributeSemantic::color0:
+        return validateColor(*this, semantic);
+
+    case AttributeSemantic::joints0:
+        return validateJoints(*this, semantic);
+
+    case AttributeSemantic::weights0:
+        return validateWeights(*this, semantic);
+    }
 }
 
 } // namespace gltf

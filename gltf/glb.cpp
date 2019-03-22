@@ -292,11 +292,7 @@ ExternalFiles collectFiles(const Model &model, const fs::path &srcDir)
 
             const auto &file(ef.files[mapping.first]);
 
-            if (bv.byteOffset) {
-                *bv.byteOffset += file.offset;
-            } else {
-                bv.byteOffset = file.offset;
-            }
+            bv.byteOffset += file.offset;
         }
         ef.bufferViews.push_back(bv);
     }

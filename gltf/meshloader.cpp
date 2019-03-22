@@ -115,35 +115,37 @@ struct TrafoHolder {
     ~TrafoHolder() { if (trafos) { trafos->pop(); } }
 };
 
-struct Decoder {
+class Decoder {
+public:
     Decoder(MeshLoader &loader, const Model &model
             , const math::Matrix4 &trafo, const OptIndex &useScene)
-        : loader(loader), mg(model)
+        : loader_(loader), mg_(model)
     {
         trafos_.push(trafo);
 
         LOG(info4) << "Processing model";
-        for (const auto nodeId : mg.getScene(useScene).nodes) {
-            processNode(mg.get<Node>(nodeId));
+        for (const auto nodeId : mg_.getScene(useScene).nodes) {
+            processNode(mg_.get<Node>(nodeId));
         }
     }
 
+private:
     void processNode(const Node &node) {
         TrafoHolder th(trafos_, node);
 
         LOG(info4) << "node: " << getName(node) << " @" << &node;
-        if (const auto *mesh = mg.get<Mesh>(node.mesh)) {
+        if (const auto *mesh = mg_.get<Mesh>(node.mesh)) {
             processMesh(*mesh);
         }
 
         for (const auto childId : node.children) {
-            processNode(mg.get<Node>(childId));
+            processNode(mg_.get<Node>(childId));
         }
     }
 
     void processMesh(const Mesh &mesh) {
         LOG(info4) << "    mesh: " << getName(mesh) << " @" << &mesh;
-        loader.newMesh();
+        loader_.newMesh();
         for (const auto &primitive : mesh.primitives) {
             processPrimitive(primitive);
         }
@@ -151,14 +153,46 @@ struct Decoder {
 
     void processPrimitive(const Primitive &primitive) {
         LOG(info4) << "    primitive @" << &primitive;
+
+        if (primitive.mode != PrimitiveMode::triangles) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Only triangles are supported. Sorry.";
+        }
+
+        const auto &pa(accessor(primitive, AttributeSemantic::position));
+        const auto *tca(accessor(primitive, AttributeSemantic::texCoord0
+                                 , std::nothrow));
+
+        (void) pa;
+        (void) tca;
     }
 
-    MeshLoader &loader;
-    const ModelGetter mg;
+    const Accessor& accessor(const Primitive &primitive
+                             , AttributeSemantic semantic) const
+    {
+        if (const auto *a = accessor(primitive, semantic, std::nothrow)) {
+            return *a;
+        }
+
+        LOGTHROW(err1, std::runtime_error)
+            << "Mandatory accessor for attribute " << semantic
+            << " not found.";
+        throw;
+    }
+
+    const Accessor* accessor(const Primitive &primitive
+                             , AttributeSemantic semantic
+                             , const std::nothrow_t&) const
+    {
+        const auto *a(mg_.get<Accessor>(primitive.attribute(semantic)));
+        if (a) { a->validate(semantic); }
+        return a;
+    }
 
     const math::Matrix4& trafo() const { return trafos_.top(); }
 
-private:
+    MeshLoader &loader_;
+    const ModelGetter mg_;
     TrafoStack trafos_;
 };
 
