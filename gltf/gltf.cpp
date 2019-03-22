@@ -698,14 +698,16 @@ void parse(Node &node, const Json::Value &value)
 void parse(Primitive &primitive, const Json::Value &value)
 {
     common(primitive, value);
-
-#if 0
-    // TODO: implement me
-    auto &attributes(value["attributes"] = Json::objectValue);
-    for (const auto &pair : primitive.attributes) {
-        attributes[boost::lexical_cast<std::string>(pair.first)] = pair.second;
+    const auto &attributes(value["attributes"]);
+    for (const auto &name : attributes.getMemberNames()) {
+        Index i;
+        Json::get(i, attributes, name.c_str());
+        primitive.attributes.insert
+            (Primitive::Attributes::value_type
+             (boost::lexical_cast<AttributeSemantic>(name)
+              , i));
     }
-#endif
+
     Json::get(primitive.indices, value, "indices");
     Json::get(primitive.material, value, "material");
     parse(primitive.mode, value, "mode");
