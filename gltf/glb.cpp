@@ -489,6 +489,7 @@ Model glb(std::istream &is, const fs::path &path)
 
     Model model;
     Json::Value content;
+    InlineBuffer buffer;
 
     switch (header.version) {
     case 1: {
@@ -501,8 +502,7 @@ Model glb(std::istream &is, const fs::path &path)
         if (soFar < header.length) {
             detail::ChunkHeader ch(header.length - soFar
                                    , detail::ChunkHeader::Type::bin);
-            model.buffers.emplace_back
-                (InlineBuffer{detail::readData(is, path, ch)});
+            buffer = detail::readData(is, path, ch);
         } else if (soFar > header.length) {
             LOGTHROW(err2, std::runtime_error)
                 << "Invalid size of binary v. 1.0 chunk.";
@@ -512,7 +512,7 @@ Model glb(std::istream &is, const fs::path &path)
 
     case 2:
         detail::readJson(content, is, path);
-        model.buffers.emplace_back(InlineBuffer{detail::readData(is, path)});
+        buffer = detail::readData(is, path);
         break;
 
     default:
@@ -522,6 +522,9 @@ Model glb(std::istream &is, const fs::path &path)
     }
 
     read(model, content, path, header.version);
+
+    // prepend bin into buffers
+    model.buffers.insert(model.buffers.begin(), std::move(buffer));
 
     return model;
 }

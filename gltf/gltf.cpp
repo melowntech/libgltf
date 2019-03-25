@@ -237,7 +237,7 @@ void build(Json::Value &value, const Primitive &primitive)
     }
     build(value, "indices", primitive.indices);
     build(value, "material", primitive.material);
-    if (primitive.mode != Primitive::defaultMode) {
+    if (primitive.mode != PrimitiveMode::default_) {
         build(value, "mode", primitive.mode);
     }
     build(value, "targets", primitive.targets);
@@ -254,8 +254,12 @@ void build(Json::Value &value, const Sampler &sampler)
     namedCommon(value, sampler);
     build(value, "magFilter", sampler.magFilter);
     build(value, "minFilter", sampler.minFilter);
-    build(value, "wrapS", sampler.wrapS);
-    build(value, "wrapT", sampler.wrapT);
+    if (sampler.wrapS != WrappingMode::default_) {
+        build(value, "wrapS", sampler.wrapS);
+    }
+    if (sampler.wrapT != WrappingMode::default_) {
+        build(value, "wrapT", sampler.wrapT);
+    }
 }
 
 void build(Json::Value &value, const Texture &texture)
@@ -471,6 +475,10 @@ template <typename T>
 bool parseOpt(T &dst, const Json::Value &value, const char *member);
 
 template <typename T>
+bool parseOpt(T &dst, const Json::Value &value, const char *member
+              , const T &dflt);
+
+template <typename T>
 void parse(std::vector<T> &dst, const Json::Value &value
            , const char *member);
 
@@ -483,6 +491,8 @@ void parse(std::vector<std::string> &list, const Json::Value &value)
         LOGTHROW(err1, Json::Error)
             << "Expected JSON array.";
     }
+
+    list.reserve(value.size());
 
     for (const auto &item : value) {
         if (!item.isString()) {
@@ -500,6 +510,7 @@ void parse(Indices &indices, const Json::Value &value)
             << "Indices are not an array.";
     }
 
+    indices.clear();
     indices.reserve(value.size());
     for (const auto &item : value) {
         indices.push_back(item.asInt());
@@ -534,8 +545,8 @@ void parse(Sampler &sampler, const Json::Value &value)
     namedCommon(sampler, value);
     Json::get(sampler.magFilter, value, "magFilter");
     Json::get(sampler.minFilter, value, "minFilter");
-    Json::get(sampler.wrapS, value, "wrapS");
-    Json::get(sampler.wrapT, value, "wrapT");
+    parseOpt(sampler.wrapS, value, "wrapS", WrappingMode::default_);
+    parseOpt(sampler.wrapT, value, "wrapT", WrappingMode::default_);
 }
 
 void parse(Texture &texture, const Json::Value &value)
@@ -601,6 +612,19 @@ void parse(ComponentType &ct, const Json::Value &value)
         LOGTHROW(err1, Json::Error)
             << "Invalid numeric value of ComponentType ("
             << value.asInt() << ").";
+    }
+}
+
+
+void parse(WrappingMode &wm, const Json::Value &value)
+{
+    Json::check(value, Json::intValue, "WrappingMode must be an integer.");
+    switch ((wm = static_cast<WrappingMode>(value.asInt()))) {
+    case WrappingMode::repeat: case WrappingMode::clamp: break;
+    case WrappingMode::mirrored: break;
+    default:
+        LOGTHROW(err1, Json::Error)
+            << "Invalid numeric value of Target (" << value.asInt() << ").";
     }
 }
 
@@ -731,9 +755,7 @@ void parse(Primitive &primitive, const Json::Value &value)
 
     Json::get(primitive.indices, value, "indices");
     Json::get(primitive.material, value, "material");
-    if (!parseOpt(primitive.mode, value, "mode")) {
-        primitive.mode = Primitive::defaultMode;
-    }
+    parseOpt(primitive.mode, value, "mode", PrimitiveMode::default_);
     parse(primitive.targets, value, "targets");
 }
 
@@ -837,9 +859,7 @@ void parse(Model &model, const Json::Value &value)
 
     parse(model.asset, value["asset"]);
     parse(model.scenes, value, "scenes");
-    parse(model.samplers, value, "samplers");
     Json::get(model.scene, value, "scene");
-
     parse(model.nodes, value, "nodes");
     parse(model.meshes, value, "meshes");
     parse(model.samplers, value, "samplers");
@@ -875,11 +895,24 @@ bool parseOpt(T &dst, const Json::Value &value
 }
 
 template <typename T>
+bool parseOpt(T &dst, const Json::Value &value, const char *member
+              , const T &dflt)
+{
+    if (parseOpt(dst, value, member)) { return true; }
+    dst = dflt;
+    return false;
+}
+
+template <typename T>
 void parse(std::vector<T> &dst, const Json::Value &value
            , const char *member)
 {
     if (value.isMember(member)) {
+        LOG(info4) << "loading <" << member << ">: " << dst.size();
         parse(dst, value[member]);
+        LOG(info4) << "loaded <" << member << ">: " << dst.size();
+    } else {
+        dst.clear();
     }
 }
 

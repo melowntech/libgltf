@@ -34,9 +34,6 @@
 namespace gltf {
 
 /** Read data from JSON value into the model.
- *
- *  NB: This function is called from GLB read function with preinitialized first
- *  buffer from the GLB binary buffer.
  */
 void read(Model &model, const Json::Value &content
           , const boost::filesystem::path &path

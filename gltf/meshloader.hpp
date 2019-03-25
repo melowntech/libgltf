@@ -42,6 +42,8 @@ public:
     virtual void addTexture(const math::Point2d&) = 0;
     virtual void addFace(const Face &mesh) = 0;
 
+    virtual void addImage(std::istream &is) = 0;
+
     virtual void newMesh() = 0;
 };
 

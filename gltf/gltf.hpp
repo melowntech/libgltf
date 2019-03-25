@@ -112,6 +112,8 @@ enum class PrimitiveMode {
     , triangles = 4
     , triangleStrip = 5
     , triangleFan = 6
+
+    , default_ = triangles
 };
 
 enum class Target {
@@ -119,6 +121,13 @@ enum class Target {
     , elementArrayBuffer = 34963
 };
 
+enum class WrappingMode {
+    repeat = 10497
+    , clamp = 33071
+    , mirrored = 33648
+
+    , default_ = repeat
+};
 
 struct CommonBase {
     Extensions extensions;
@@ -134,6 +143,10 @@ struct InlineBuffer : NamedCommonBase {
 
     InlineBuffer() = default;
     InlineBuffer(Data &&data) : data(std::move(data)) {}
+    InlineBuffer(InlineBuffer &&data) = default;
+    InlineBuffer& operator=(InlineBuffer &&data) = default;
+    InlineBuffer(const InlineBuffer &data) = default;
+    InlineBuffer& operator=(const InlineBuffer &data) = default;
 };
 
 struct ExternalBuffer : NamedCommonBase {
@@ -202,13 +215,11 @@ struct Node : NamedCommonBase {
 };
 
 struct Primitive : CommonBase {
-    static constexpr PrimitiveMode defaultMode = PrimitiveMode::triangles;
-
     using Attributes = std::map<AttributeSemantic, Index>;
     Attributes attributes;
     OptIndex indices;
     OptIndex material;
-    PrimitiveMode mode = defaultMode;
+    PrimitiveMode mode = PrimitiveMode::default_;
     Indices targets;
 
     using list = std::vector<Primitive>;
@@ -274,8 +285,8 @@ struct BufferViewImage : NamedCommonBase {
 struct Sampler : NamedCommonBase {
     boost::optional<int> magFilter;
     boost::optional<int> minFilter;
-    boost::optional<int> wrapS;
-    boost::optional<int> wrapT;
+    WrappingMode wrapS = WrappingMode::default_;
+    WrappingMode wrapT = WrappingMode::default_;
 
     using list = std::vector<Sampler>;
 };

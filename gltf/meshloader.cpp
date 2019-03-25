@@ -25,16 +25,24 @@
  */
 
 #include <stack>
+#include <iostream>
+
+#include <boost/iostreams/stream_buffer.hpp>
+#include <boost/iostreams/device/array.hpp>
 
 #include "dbglog/dbglog.hpp"
 
 #include "meshloader.hpp"
 
 namespace ublas = boost::numeric::ublas;
+namespace bio = boost::iostreams;
 
 namespace gltf {
 
 namespace {
+
+typedef bio::stream_buffer<bio::array_source> ArrayBuffer;
+
 
 template <typename T> const std::vector<T>& getList(const Model &model);
 template <typename T> const char* typeName();
@@ -115,6 +123,114 @@ struct TrafoHolder {
     ~TrafoHolder() { if (trafos) { trafos->pop(); } }
 };
 
+struct DataExtractor {
+    DataExtractor(const Accessor &a, const BufferView &bv, const Data &data)
+        : a(a), bv(bv), data(data)
+    {}
+
+    const Accessor &a;
+    const BufferView &bv;
+    const Data &data;
+};
+
+struct VertexExtractor : DataExtractor {
+    VertexExtractor(const DataExtractor &e)
+        : DataExtractor(e)
+    {}
+
+    
+};
+
+struct TCExtractor : DataExtractor {
+    TCExtractor(const DataExtractor &e)
+        : DataExtractor(e)
+    {}
+
+};
+
+const Data& extractData(const ModelGetter &mg, Index index) {
+    struct DataExtractor : public boost::static_visitor<const Data&> {
+        const Data& operator()(const InlineBuffer &buffer) {
+            return buffer.data;
+        }
+
+        const Data& operator()(const ExternalBuffer&) {
+            LOGTHROW(err1, std::runtime_error)
+                << "External buffer is not supported (yet).";
+            throw;
+        }
+    } v;
+
+    return boost::apply_visitor(v, mg.get<Buffer>(index));
+}
+
+void addImage(MeshLoader &loader, const Data &data
+              , const BufferView *bv = nullptr)
+{
+    const auto begin
+        (static_cast<const char*>
+         (static_cast<const void*>
+          (data.data() + (bv ? bv->byteOffset : 0))));
+    const auto end(begin + (bv ? bv->byteLength : data.size()));
+
+    ArrayBuffer ab(begin, end);
+    std::istream is(&ab);
+    is.exceptions(std::ios::badbit | std::ios::failbit);
+    loader.addImage(is);
+}
+
+void extractImage(MeshLoader &loader, const BufferView &bv
+                  , const Buffer &buffer)
+{
+    struct ImageDataExtractor : public boost::static_visitor<void> {
+        MeshLoader &loader;
+        const BufferView &bv;
+
+        ImageDataExtractor(MeshLoader &loader, const BufferView &bv)
+            : loader(loader), bv(bv)
+        {}
+
+        void operator()(const InlineBuffer &buffer) {
+            addImage(loader, buffer.data, &bv);
+        }
+
+        void operator()(const ExternalBuffer&) {
+            LOGTHROW(err1, std::runtime_error)
+                << "External buffer is not supported (yet).";
+        }
+    } v(loader, bv);
+
+    return boost::apply_visitor(v, buffer);
+}
+
+void extractImage(MeshLoader &loader, const ModelGetter &mg, Index index)
+{
+    struct ImageExtractor : public boost::static_visitor<> {
+        MeshLoader &loader;
+        const ModelGetter &mg;
+        ImageExtractor(MeshLoader &loader, const ModelGetter &mg)
+            : loader(loader), mg(mg)
+        {}
+
+        void operator()(const InlineImage &image) {
+            addImage(loader, image.data);
+        }
+
+        void operator()(const ExternalImage &) {
+            LOGTHROW(err1, std::runtime_error)
+                << "External image not supported (yet)..";
+        }
+
+        void operator()(const BufferViewImage &image) {
+            const auto &bv(mg.get<BufferView>(image.bufferView));
+            const auto &buffer(mg.get<Buffer>(bv.buffer));
+            extractImage(loader, bv, buffer);
+        }
+    } v(loader, mg);
+
+    return boost::apply_visitor(v, mg.get<Image>(index));
+}
+
 class Decoder {
 public:
     Decoder(MeshLoader &loader, const Model &model
@@ -156,14 +272,14 @@ private:
 
         if (primitive.mode != PrimitiveMode::triangles) {
             LOGTHROW(err1, std::runtime_error)
-                << "Only triangles are supported. Sorry.";
+                << "Only triangles are supported..";
         }
 
-        const auto &pa(accessor(primitive, AttributeSemantic::position));
-        const auto *tca(accessor(primitive, AttributeSemantic::texCoord0
-                                 , std::nothrow));
+        const auto va(vertexExtractor(primitive));
+        const auto tca(tcExtractor(primitive));
 
-        (void) pa;
+        // TODO: traverse buffer
+        (void) va;
         (void) tca;
     }
 
@@ -184,9 +300,55 @@ private:
                              , AttributeSemantic semantic
                              , const std::nothrow_t&) const
     {
-        const auto *a(mg_.get<Accessor>(primitive.attribute(semantic)));
-        if (a) { a->validate(semantic); }
-        return a;
+        if (const auto *a = mg_.get<Accessor>(primitive.attribute(semantic))) {
+            a->validate(semantic);
+            if (!a->bufferView) {
+                LOGTHROW(err1, std::runtime_error)
+                    << "Accessor without buffer view is unsupported.";
+            }
+
+            return a;
+        }
+        return nullptr;
+    }
+
+    DataExtractor extractor(const Accessor &accessor) const {
+        const auto bv(mg_.get<BufferView>(*accessor.bufferView));
+        return DataExtractor(accessor, bv, extractData(mg_, bv.buffer));
+    }
+
+    VertexExtractor vertexExtractor(const Primitive &primitive) const {
+        return extractor(accessor(primitive, AttributeSemantic::position));
+    }
+
+    TCExtractor tcExtractor(const Primitive &primitive) const {
+        auto e(extractor(accessor(primitive, AttributeSemantic::texCoord0)));
+
+        // extract material
+        const auto *material(mg_.get<Material>(primitive.material));
+        if (!material) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Expected material for texture coordinates.";
+        }
+
+        if (!material->pbrMetallicRoughness) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Expected PBR metallic roughness material for "
+                "texture coordinates.";
+        }
+
+        if (!material->pbrMetallicRoughness->baseColorTexture) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Expected base color texture for texture coordinates.";
+        }
+
+        const auto &texture
+            (mg_.get<Texture>
+             (material->pbrMetallicRoughness->baseColorTexture->index));
+
+        extractImage(loader_, mg_, texture.source);
+
+        return TCExtractor(e);
     }
 
     const math::Matrix4& trafo() const { return trafos_.top(); }
