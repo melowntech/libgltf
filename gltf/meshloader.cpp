@@ -123,29 +123,85 @@ struct TrafoHolder {
     ~TrafoHolder() { if (trafos) { trafos->pop(); } }
 };
 
-struct DataExtractor {
+template <typename T>
+const T* getBegin(const Accessor &a, const BufferView &bv, const Data &data)
+{
+    return reinterpret_cast<const T*>
+        (data.data() + bv.byteOffset + a.offset);
+}
+
+template <typename T>
+std::size_t getSkip(const Accessor &a, const BufferView &bv)
+{
+    // tightly packed? => no skip
+    if (!bv.byteStride) { return 0; }
+
+    // stride in scalars
+    const auto typedStride(*bv.byteStride / sizeof(T));
+    // how many scalars we need to skip to next one
+    return typedStride - elementSize(a.type);
+}
+
+template <typename StoredT, typename T = StoredT>
+class DataReader {
+public:
+    using stored_type = StoredT;
+    using value_type = T;
+
+    DataReader(const Accessor &a, const BufferView &bv, const Data &data)
+        : elementSize_(elementSize(a.type))
+        , begin_(getBegin<stored_type>(a, bv, data))
+        , skip_(getSkip<stored_type>(a, bv))
+        , end_(begin_ + a.count * (elementSize_ + skip_))
+    {}
+
+    template <typename F>
+    void read(F f) const {
+        for (const auto *i(begin_); i != end_; i += skip_) {
+            for (std::size_t index(0); index < elementSize_; ++index, ++i) {
+                f(value_type(*i), index);
+            }
+        }
+    }
+
+private:
+    std::size_t elementSize_;
+
+    const stored_type *begin_;
+    const std::size_t skip_;
+    const stored_type *end_;
+};
+
+class DataExtractor {
+public:
     DataExtractor(const Accessor &a, const BufferView &bv, const Data &data)
-        : a(a), bv(bv), data(data)
+        : a_(a), bv_(bv), data_(data)
     {}
 
-    const Accessor &a;
-    const BufferView &bv;
-    const Data &data;
-};
+    /** Calls f(item) for each item.
+     */
+    template <typename T, typename F>
+    void read(F f) const {
+        switch (a_.componentType) {
+        case ComponentType::byte:
+            return DataReader<std::int8_t, T>(a_, bv_, data_).read(f);
+        case ComponentType::ubyte:
+            return DataReader<std::uint8_t, T>(a_, bv_, data_).read(f);
+        case ComponentType::short_:
+            return DataReader<std::int16_t, T>(a_, bv_, data_).read(f);
+        case ComponentType::ushort:
+            return DataReader<std::uint16_t, T>(a_, bv_, data_).read(f);
+        case ComponentType::uint:
+            return DataReader<std::uint32_t, T>(a_, bv_, data_).read(f);
+        case ComponentType::float_:
+            return DataReader<float, T>(a_, bv_, data_).read(f);
+        }
+    }
 
-struct VertexExtractor : DataExtractor {
-    VertexExtractor(const DataExtractor &e)
-        : DataExtractor(e)
-    {}
-
-    
-};
-
-struct TCExtractor : DataExtractor {
-    TCExtractor(const DataExtractor &e)
-        : DataExtractor(e)
-    {}
-
+private:
+    const Accessor &a_;
+    const BufferView &bv_;
+    const Data &data_;
 };
 
 const Data& extractData(const ModelGetter &mg, Index index) {
@@ -168,15 +224,14 @@ void addImage(MeshLoader &loader, const Data &data
               , const BufferView *bv = nullptr)
 {
     const auto begin
-        (static_cast<const char*>
-         (static_cast<const void*>
-          (data.data() + (bv ? bv->byteOffset : 0))));
+        (reinterpret_cast<const char*>
+         (data.data() + (bv ? bv->byteOffset : 0)));
     const auto end(begin + (bv ? bv->byteLength : data.size()));
 
     ArrayBuffer ab(begin, end);
     std::istream is(&ab);
     is.exceptions(std::ios::badbit | std::ios::failbit);
-    loader.addImage(is);
+    loader.image(is);
 }
 
 void extractImage(MeshLoader &loader, const BufferView &bv
@@ -261,7 +316,7 @@ private:
 
     void processMesh(const Mesh &mesh) {
         LOG(info4) << "    mesh: " << getName(mesh) << " @" << &mesh;
-        loader_.newMesh();
+        loader_.mesh();
         for (const auto &primitive : mesh.primitives) {
             processPrimitive(primitive);
         }
@@ -278,8 +333,20 @@ private:
         const auto va(vertexExtractor(primitive));
         const auto tca(tcExtractor(primitive));
 
+#if 0
+        {
+            math::Points3d vertices;
+            va.read<double>([&vertices]
+                            (double value, std::size_t index) mutable
+            {
+                if (!index) { vertices.emplace_back(); }
+                vertices.back()(index) = value;
+            });
+            loader_.vertices(vertices);
+        }
+#endif
+
         // TODO: traverse buffer
-        (void) va;
         (void) tca;
     }
 
@@ -317,14 +384,15 @@ private:
         return DataExtractor(accessor, bv, extractData(mg_, bv.buffer));
     }
 
-    VertexExtractor vertexExtractor(const Primitive &primitive) const {
+    DataExtractor vertexExtractor(const Primitive &primitive) const {
         return extractor(accessor(primitive, AttributeSemantic::position));
     }
 
-    TCExtractor tcExtractor(const Primitive &primitive) const {
+    DataExtractor tcExtractor(const Primitive &primitive) const {
+        // get data extractor
         auto e(extractor(accessor(primitive, AttributeSemantic::texCoord0)));
 
-        // extract material
+        // extract image from texture from material
         const auto *material(mg_.get<Material>(primitive.material));
         if (!material) {
             LOGTHROW(err1, std::runtime_error)
@@ -346,9 +414,10 @@ private:
             (mg_.get<Texture>
              (material->pbrMetallicRoughness->baseColorTexture->index));
 
+        // notify loader with image
         extractImage(loader_, mg_, texture.source);
 
-        return TCExtractor(e);
+        return e;
     }
 
     const math::Matrix4& trafo() const { return trafos_.top(); }

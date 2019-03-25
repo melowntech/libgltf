@@ -38,13 +38,18 @@ public:
     typedef gltf::Face Face;
 
     virtual ~MeshLoader() {}
-    virtual void addVertex(const math::Point3d&) = 0;
-    virtual void addTexture(const math::Point2d&) = 0;
-    virtual void addFace(const Face &mesh) = 0;
 
-    virtual void addImage(std::istream &is) = 0;
+    /** New texture image has been encountered.
+     */
+    virtual void image(std::istream&) = 0;
 
-    virtual void newMesh() = 0;
+    /** New mesh has been encountered.
+     */
+    virtual void mesh() = 0;
+
+    /** New mesh has been encountered.
+     */
+    virtual void vertices(const math::Points3&) = 0;
 };
 
 /** Decode mesh from all scene nodes.

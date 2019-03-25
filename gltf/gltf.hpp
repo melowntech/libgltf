@@ -28,11 +28,13 @@
 #define gltf_gltf_hpp_included_
 
 #include <iosfwd>
-
+#include <stdexcept>
 #include <vector>
+
 #include <boost/any.hpp>
 #include <boost/optional.hpp>
 #include <boost/variant.hpp>
+#include <boost/align/aligned_allocator.hpp>
 
 #include "utility/enum-io.hpp"
 #include "utility/openmp.hpp"
@@ -58,7 +60,10 @@ using OptString = boost::optional<std::string> ;
 using ExtensionList = std::vector<std::string>;
 using Extension = boost::any;
 using Extensions = std::map<std::string, Extension>;
-typedef std::vector<unsigned char> Data;
+
+// allocate data on with 4-byte alignment to allow direct data read
+using DataAllocator = boost::alignment::aligned_allocator<std::uint8_t, 4>;
+typedef std::vector<std::uint8_t, DataAllocator> Data;
 
 /** Retuns boost::any set to empty JSON object.
  */
@@ -141,12 +146,8 @@ struct NamedCommonBase : CommonBase {
 struct InlineBuffer : NamedCommonBase {
     Data data;
 
-    InlineBuffer() = default;
-    InlineBuffer(Data &&data) : data(std::move(data)) {}
-    InlineBuffer(InlineBuffer &&data) = default;
-    InlineBuffer& operator=(InlineBuffer &&data) = default;
-    InlineBuffer(const InlineBuffer &data) = default;
-    InlineBuffer& operator=(const InlineBuffer &data) = default;
+    void set(const Data &data) { this->data = data; }
+    void set(Data &&data) { this->data = std::move(data); }
 };
 
 struct ExternalBuffer : NamedCommonBase {
@@ -377,6 +378,20 @@ inline OptIndex Primitive::attribute(AttributeSemantic semantic) const
     auto fattributes(attributes.find(semantic));
     if (fattributes == attributes.end()) { return boost::none; }
     return fattributes->second;
+}
+
+inline std::size_t elementSize(AttributeType type)
+{
+    switch (type) {
+    case AttributeType::scalar: return 1;
+    case AttributeType::vec2: return 2;
+    case AttributeType::vec3: return 3;
+    case AttributeType::vec4: return 4;
+    case AttributeType::mat2: return 4;
+    case AttributeType::mat3: return 9;
+    case AttributeType::mat4: return 16;
+    }
+    throw std::logic_error("Invalid attribute type");
 }
 
 } // namespace gltf

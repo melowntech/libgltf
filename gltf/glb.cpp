@@ -502,7 +502,7 @@ Model glb(std::istream &is, const fs::path &path)
         if (soFar < header.length) {
             detail::ChunkHeader ch(header.length - soFar
                                    , detail::ChunkHeader::Type::bin);
-            buffer = detail::readData(is, path, ch);
+            buffer.set(detail::readData(is, path, ch));
         } else if (soFar > header.length) {
             LOGTHROW(err2, std::runtime_error)
                 << "Invalid size of binary v. 1.0 chunk.";
@@ -512,7 +512,7 @@ Model glb(std::istream &is, const fs::path &path)
 
     case 2:
         detail::readJson(content, is, path);
-        buffer = detail::readData(is, path);
+        buffer.set(detail::readData(is, path));
         break;
 
     default:
