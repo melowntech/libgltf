@@ -31,25 +31,33 @@
 
 namespace gltf {
 
-typedef math::Point3_<unsigned int> Face;
-
 class MeshLoader {
 public:
-    typedef gltf::Face Face;
+    using Face = math::Point3_<unsigned int>;
+    using Faces = std::vector<Face>;
 
     virtual ~MeshLoader() {}
-
-    /** New texture image has been encountered.
-     */
-    virtual void image(std::istream&) = 0;
 
     /** New mesh has been encountered.
      */
     virtual void mesh() = 0;
 
-    /** New mesh has been encountered.
+    /** Mesh texture.
+     */
+    virtual void image(std::istream&) = 0;
+
+    /** Mesh vertices.
      */
     virtual void vertices(const math::Points3&) = 0;
+
+    /** Mesh texture coordinates.
+     */
+    virtual void tc(const math::Points2&) = 0;
+
+    /** Mexh faces. Indices are valid for both 3D and 2D vertices (i.e. vertices
+     *  and texture coordinates.
+     */
+    virtual void faces(const Faces &faces) = 0;
 };
 
 /** Decode mesh from all scene nodes.

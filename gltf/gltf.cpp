@@ -908,9 +908,7 @@ void parse(std::vector<T> &dst, const Json::Value &value
            , const char *member)
 {
     if (value.isMember(member)) {
-        LOG(info4) << "loading <" << member << ">: " << dst.size();
         parse(dst, value[member]);
-        LOG(info4) << "loaded <" << member << ">: " << dst.size();
     } else {
         dst.clear();
     }

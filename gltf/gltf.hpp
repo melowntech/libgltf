@@ -194,6 +194,8 @@ struct Accessor : NamedCommonBase {
         : offset(), componentType(componentType), count(count), type(type)
     {}
 
+    /** Is this accessor valid for given attribute semantic?
+     */
     void validate(AttributeSemantic semantic) const;
 };
 

@@ -58,8 +58,8 @@ void validateTexCoord(const Accessor &a, AttributeSemantic semantic) {
     if (a.type != AttributeType::vec2) {
         LOGTHROW(err1, std::runtime_error)
             << "Attribute with semantic <" << semantic
-            << "> must be VEC2(float|normalized unsinged byte"
-            "|normalized unsinged short).";
+            << "> must be VEC2(float|normalized unsigned byte"
+            "|normalized unsigned short).";
     }
 
     switch (a.componentType) {
@@ -102,8 +102,8 @@ void validateColor(const Accessor &a, AttributeSemantic semantic) {
     {
         LOGTHROW(err1, std::runtime_error)
             << "Attribute with semantic <" << semantic
-            << "> must be (VEC3|VEC4)(float|normalized unsinged byte"
-            "|normalized unsinged short).";
+            << "> must be (VEC3|VEC4)(float|normalized unsigned byte"
+            "|normalized unsigned short).";
     }
 
     switch (a.componentType) {
@@ -134,8 +134,8 @@ void validateColor(const Accessor &a, AttributeSemantic semantic) {
     default:
         LOGTHROW(err1, std::runtime_error)
             << "Attribute with semantic <" << semantic
-            << "> must be " << a.type << "(float|normalized unsinged byte"
-            "|normalized unsinged short).";
+            << "> must be " << a.type << "(float|normalized unsigned byte"
+            "|normalized unsigned short).";
         return;
     }
 }
@@ -144,7 +144,7 @@ void validateJoints(const Accessor &a, AttributeSemantic semantic) {
     if (a.type != AttributeType::vec4) {
         LOGTHROW(err1, std::runtime_error)
             << "Attribute with semantic <" << semantic
-            << "> must be VEC4(unsigned byte|unsinged short).";
+            << "> must be VEC4(unsigned byte|unsigned short).";
     }
 
     switch (a.componentType) {
@@ -176,8 +176,8 @@ void validateWeights(const Accessor &a, AttributeSemantic semantic) {
     if (a.type != AttributeType::vec3) {
         LOGTHROW(err1, std::runtime_error)
             << "Attribute with semantic <" << semantic
-            << "> must be VEC4float|normalized unsinged byte"
-            "|normalized unsinged short).";
+            << "> must be VEC4float|normalized unsigned byte"
+            "|normalized unsigned short).";
     }
 
     switch (a.componentType) {
@@ -208,8 +208,8 @@ void validateWeights(const Accessor &a, AttributeSemantic semantic) {
     default:
         LOGTHROW(err1, std::runtime_error)
             << "Attribute with semantic <" << semantic
-            << "> must be VEC4(float|normalized unsinged byte"
-            "|normalized unsinged short).";
+            << "> must be VEC4(float|normalized unsigned byte"
+            "|normalized unsigned short).";
         return;
     }
 }

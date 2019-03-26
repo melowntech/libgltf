@@ -24,6 +24,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <type_traits>
 #include <stack>
 #include <iostream>
 
@@ -31,6 +32,8 @@
 #include <boost/iostreams/device/array.hpp>
 
 #include "dbglog/dbglog.hpp"
+
+#include "math/transform.hpp"
 
 #include "meshloader.hpp"
 
@@ -41,8 +44,8 @@ namespace gltf {
 
 namespace {
 
-typedef bio::stream_buffer<bio::array_source> ArrayBuffer;
-
+using ArrayBuffer = bio::stream_buffer<bio::array_source> ;
+using VertexIndex = std::uint32_t;
 
 template <typename T> const std::vector<T>& getList(const Model &model);
 template <typename T> const char* typeName();
@@ -142,13 +145,47 @@ std::size_t getSkip(const Accessor &a, const BufferView &bv)
     return typedStride - elementSize(a.type);
 }
 
-template <typename StoredT, typename T = StoredT>
-class DataReader {
+template <typename T, bool normalized, typename Enable = void>
+struct Normalizer;
+
+template <typename T> struct Normalizer<T, false, void> {
+    double normalize(T value) const { return value; }
+};
+
+// signed
+template <typename T>
+struct Normalizer<T, true, typename std::enable_if
+                  <std::is_signed<T>::value>::type>
+{
+    double normalize(T value) const {
+        if (value >= 0) {
+            return value / max;
+        }
+        return value / min;
+    };
+
+    static constexpr double min = -std::numeric_limits<T>::min();
+    static constexpr double max = std::numeric_limits<T>::max();
+};
+
+// unsigned
+template <typename T>
+struct Normalizer<T, true, typename std::enable_if
+                  <std::is_unsigned<T>::value>::type>
+{
+    double normalize(T value) const {
+        return value / max;
+    };
+
+    static constexpr double max = std::numeric_limits<T>::max();
+};
+
+template <typename StoredT, bool normalized>
+class AttributeReader : private Normalizer<StoredT, normalized> {
 public:
     using stored_type = StoredT;
-    using value_type = T;
 
-    DataReader(const Accessor &a, const BufferView &bv, const Data &data)
+    AttributeReader(const Accessor &a, const BufferView &bv, const Data &data)
         : elementSize_(elementSize(a.type))
         , begin_(getBegin<stored_type>(a, bv, data))
         , skip_(getSkip<stored_type>(a, bv))
@@ -159,7 +196,7 @@ public:
     void read(F f) const {
         for (const auto *i(begin_); i != end_; i += skip_) {
             for (std::size_t index(0); index < elementSize_; ++index, ++i) {
-                f(value_type(*i), index);
+                f(this->normalize(*i), index);
             }
         }
     }
@@ -172,30 +209,105 @@ private:
     const stored_type *end_;
 };
 
-class DataExtractor {
+class AttributeExtractor {
 public:
-    DataExtractor(const Accessor &a, const BufferView &bv, const Data &data)
+    AttributeExtractor(const Accessor &a, const BufferView &bv
+                       , const Data &data)
         : a_(a), bv_(bv), data_(data)
     {}
 
     /** Calls f(item) for each item.
      */
-    template <typename T, typename F>
+    template <typename F>
     void read(F f) const {
-        switch (a_.componentType) {
-        case ComponentType::byte:
-            return DataReader<std::int8_t, T>(a_, bv_, data_).read(f);
-        case ComponentType::ubyte:
-            return DataReader<std::uint8_t, T>(a_, bv_, data_).read(f);
-        case ComponentType::short_:
-            return DataReader<std::int16_t, T>(a_, bv_, data_).read(f);
-        case ComponentType::ushort:
-            return DataReader<std::uint16_t, T>(a_, bv_, data_).read(f);
-        case ComponentType::uint:
-            return DataReader<std::uint32_t, T>(a_, bv_, data_).read(f);
-        case ComponentType::float_:
-            return DataReader<float, T>(a_, bv_, data_).read(f);
+#define CASE_TYPE(CType, Type, Normalized)                              \
+        case ComponentType::CType:                                      \
+            return AttributeReader<Type, Normalized>(a_, bv_, data_).read(f)
+
+        if (a_.normalized) {
+            switch (a_.componentType) {
+                CASE_TYPE(byte, std::int8_t, true);
+                CASE_TYPE(ubyte, std::uint8_t, true);
+                CASE_TYPE(short_, std::int16_t, true);
+                CASE_TYPE(ushort, std::uint16_t, true);
+                CASE_TYPE(uint, std::uint32_t, true);
+                CASE_TYPE(float_, float, false);
+            }
+        } else {
+            switch (a_.componentType) {
+                CASE_TYPE(byte, std::int8_t, false);
+                CASE_TYPE(ubyte, std::uint8_t, false);
+                CASE_TYPE(short_, std::int16_t, false);
+                CASE_TYPE(ushort, std::uint16_t, false);
+                CASE_TYPE(uint, std::uint32_t, false);
+                CASE_TYPE(float_, float, false);
+            }
         }
+
+#undef CASE_TYPE
+    }
+
+private:
+    const Accessor &a_;
+    const BufferView &bv_;
+    const Data &data_;
+};
+
+template <typename StoredT>
+class IndexReader {
+public:
+    using stored_type = StoredT;
+
+    IndexReader(const Accessor &a, const BufferView &bv, const Data &data)
+        : begin_(getBegin<stored_type>(a, bv, data))
+        , end_(begin_ + a.count)
+    {}
+
+    template <typename F>
+    void read(F f) const {
+        for (const auto *i(begin_); i != end_; ++i) {
+            f(*i);
+        }
+    }
+
+private:
+    const stored_type *begin_;
+    const stored_type *end_;
+};
+
+class IndexExtractor {
+public:
+    IndexExtractor(const Accessor &a, const BufferView &bv, const Data &data)
+        : a_(a), bv_(bv), data_(data)
+    {}
+
+    /** Calls f(item) for each item.
+     */
+    template <typename F>
+    void read(F f) const {
+        if (a_.type != AttributeType::scalar) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Index must be a scalar.";
+        }
+
+        if (a_.normalized) {
+            LOGTHROW(err1, std::runtime_error)
+                << "Index must not be normalized.";
+        }
+
+#define CASE_TYPE(CType, Type)                                  \
+        case ComponentType::CType:                              \
+            return IndexReader<Type>(a_, bv_, data_).read(f)
+
+        switch (a_.componentType) {
+            CASE_TYPE(ubyte, std::uint8_t);
+            CASE_TYPE(ushort, std::uint16_t);
+            CASE_TYPE(uint, std::uint32_t);
+        default:
+            LOGTHROW(err1, std::runtime_error)
+                << "Index must be a unsigned number.";
+        }
+#undef CASE_TYPE
     }
 
 private:
@@ -205,7 +317,7 @@ private:
 };
 
 const Data& extractData(const ModelGetter &mg, Index index) {
-    struct DataExtractor : public boost::static_visitor<const Data&> {
+    struct AttributeExtractor : public boost::static_visitor<const Data&> {
         const Data& operator()(const InlineBuffer &buffer) {
             return buffer.data;
         }
@@ -237,11 +349,11 @@ void addImage(MeshLoader &loader, const Data &data
 void extractImage(MeshLoader &loader, const BufferView &bv
                   , const Buffer &buffer)
 {
-    struct ImageDataExtractor : public boost::static_visitor<void> {
+    struct ImageAttributeExtractor : public boost::static_visitor<void> {
         MeshLoader &loader;
         const BufferView &bv;
 
-        ImageDataExtractor(MeshLoader &loader, const BufferView &bv)
+        ImageAttributeExtractor(MeshLoader &loader, const BufferView &bv)
             : loader(loader), bv(bv)
         {}
 
@@ -325,29 +437,47 @@ private:
     void processPrimitive(const Primitive &primitive) {
         LOG(info4) << "    primitive @" << &primitive;
 
-        if (primitive.mode != PrimitiveMode::triangles) {
-            LOGTHROW(err1, std::runtime_error)
-                << "Only triangles are supported..";
-        }
-
-        const auto va(vertexExtractor(primitive));
-        const auto tca(tcExtractor(primitive));
-
-#if 0
+        // vertices
+        const auto vertexCount([&]()
         {
             math::Points3d vertices;
-            va.read<double>([&vertices]
-                            (double value, std::size_t index) mutable
+            extractor<AttributeExtractor>
+                (primitive, AttributeSemantic::position)
+                .read([&vertices](double value, std::size_t index) mutable
             {
                 if (!index) { vertices.emplace_back(); }
                 vertices.back()(index) = value;
             });
-            loader_.vertices(vertices);
-        }
-#endif
 
-        // TODO: traverse buffer
-        (void) tca;
+            // apply transformation
+            math::transform(trafo(), vertices);
+            return vertices.size();
+        }());
+
+        // are there texture coordinates
+        if (const auto *a = accessor(primitive, AttributeSemantic::texCoord0
+                                     , std::nothrow))
+        {
+            // image
+            extractTextureImage(primitive);
+
+            math::Points2d tc;
+            extractor<AttributeExtractor>(*a).read
+                ([&tc](double value, std::size_t index) mutable
+            {
+                if (!index) { tc.emplace_back(); }
+                tc.back()(index) = value;
+            });
+            loader_.tc(tc);
+        }
+
+        // faces
+        if (const auto *a = mg_.get<Accessor>(primitive.indices)) {
+            // read indices from accessor
+            loader_.faces(faces(primitive.mode, *a));
+        } else {
+            loader_.faces(faces(primitive.mode, vertexCount));
+        }
     }
 
     const Accessor& accessor(const Primitive &primitive
@@ -379,19 +509,25 @@ private:
         return nullptr;
     }
 
-    DataExtractor extractor(const Accessor &accessor) const {
-        const auto bv(mg_.get<BufferView>(*accessor.bufferView));
-        return DataExtractor(accessor, bv, extractData(mg_, bv.buffer));
+    template <typename Extractor>
+    Extractor extractor(const Accessor &accessor) const {
+        // TODO: handle bufferView-less accessor
+        if (!accessor.bufferView) {
+            LOGTHROW(info4, std::runtime_error)
+                << "No buffer view present in accessor.";
+        }
+        const auto &bv(mg_.get<BufferView>(*accessor.bufferView));
+        return Extractor(accessor, bv, extractData(mg_, bv.buffer));
     }
 
-    DataExtractor vertexExtractor(const Primitive &primitive) const {
-        return extractor(accessor(primitive, AttributeSemantic::position));
+    template <typename Extractor>
+    Extractor extractor(const Primitive &primitive
+                            , AttributeSemantic semantic) const
+    {
+        return extractor<Extractor>(accessor(primitive, semantic));
     }
 
-    DataExtractor tcExtractor(const Primitive &primitive) const {
-        // get data extractor
-        auto e(extractor(accessor(primitive, AttributeSemantic::texCoord0)));
-
+    void extractTextureImage(const Primitive &primitive) const {
         // extract image from texture from material
         const auto *material(mg_.get<Material>(primitive.material));
         if (!material) {
@@ -416,8 +552,60 @@ private:
 
         // notify loader with image
         extractImage(loader_, mg_, texture.source);
+    }
 
-        return e;
+    MeshLoader::Faces faces(PrimitiveMode mode, const Accessor &a) const {
+        const auto e(extractor<IndexExtractor>(a));
+
+        MeshLoader::Faces faces;
+
+        switch (mode) {
+        case PrimitiveMode::triangles: {
+            // 3 consecutive indices form a triangle
+            int i(0);
+            e.read([&faces, &i](VertexIndex vi) mutable
+            {
+                if (!i) { faces.emplace_back(); }
+                faces.back()[i++] = vi;
+                i %= 3;
+            });
+        } break;
+
+        case PrimitiveMode::triangleStrip: // TODO: implement me
+        case PrimitiveMode::triangleFan: // TODO: implement me
+        default:
+            LOGTHROW(err1, std::runtime_error)
+                << "Only triangles are supported..";
+        }
+
+        return faces;
+    }
+
+    MeshLoader::Faces faces(PrimitiveMode mode, std::size_t vertexCount)
+        const
+    {
+        MeshLoader::Faces faces;
+
+        switch (mode) {
+        case PrimitiveMode::triangles: {
+            // 3 consecutive indices form a triangle
+            faces.resize(vertexCount / 3);
+            std::size_t i(0);
+            for (auto &face : faces) {
+                for (int ii(0); ii < 3; ++ii, ++i) {
+                    face[ii] = i;
+                }
+            }
+        } break;
+
+        case PrimitiveMode::triangleStrip: // TODO: implement me
+        case PrimitiveMode::triangleFan: // TODO: implement me
+        default:
+            LOGTHROW(err1, std::runtime_error)
+                << "Only triangles are supported..";
+        }
+
+        return faces;
     }
 
     const math::Matrix4& trafo() const { return trafos_.top(); }
