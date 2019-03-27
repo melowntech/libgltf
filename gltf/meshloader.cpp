@@ -42,6 +42,8 @@ namespace bio = boost::iostreams;
 
 namespace gltf {
 
+MeshLoader::~MeshLoader() {}
+
 namespace {
 
 using ArrayBuffer = bio::stream_buffer<bio::array_source> ;
@@ -335,15 +337,17 @@ const Data& extractData(const ModelGetter &mg, Index index) {
 void addImage(MeshLoader &loader, const Data &data
               , const BufferView *bv = nullptr)
 {
-    const auto begin
-        (reinterpret_cast<const char*>
-         (data.data() + (bv ? bv->byteOffset : 0)));
+    const auto begin(data.data() + (bv ? bv->byteOffset : 0));
     const auto end(begin + (bv ? bv->byteLength : data.size()));
 
+    loader.image(DataView(begin, end));
+
+#if 0
     ArrayBuffer ab(begin, end);
     std::istream is(&ab);
     is.exceptions(std::ios::badbit | std::ios::failbit);
     loader.image(is);
+#endif
 }
 
 void extractImage(MeshLoader &loader, const BufferView &bv
@@ -406,7 +410,6 @@ public:
     {
         trafos_.push(trafo);
 
-        LOG(info4) << "Processing model";
         for (const auto nodeId : mg_.getScene(useScene).nodes) {
             processNode(mg_.get<Node>(nodeId));
         }
@@ -416,7 +419,6 @@ private:
     void processNode(const Node &node) {
         TrafoHolder th(trafos_, node);
 
-        LOG(info4) << "node: " << getName(node) << " @" << &node;
         if (const auto *mesh = mg_.get<Mesh>(node.mesh)) {
             processMesh(*mesh);
         }
@@ -427,7 +429,6 @@ private:
     }
 
     void processMesh(const Mesh &mesh) {
-        LOG(info4) << "    mesh: " << getName(mesh) << " @" << &mesh;
         loader_.mesh();
         for (const auto &primitive : mesh.primitives) {
             processPrimitive(primitive);
@@ -435,8 +436,6 @@ private:
     }
 
     void processPrimitive(const Primitive &primitive) {
-        LOG(info4) << "    primitive @" << &primitive;
-
         // vertices
         const auto vertexCount([&]()
         {
@@ -451,7 +450,10 @@ private:
 
             // apply transformation
             math::transform(trafo(), vertices);
-            return vertices.size();
+
+            auto size(vertices.size());
+            loader_.vertices(std::move(vertices));
+            return size;
         }());
 
         // are there texture coordinates
@@ -468,7 +470,7 @@ private:
                 if (!index) { tc.emplace_back(); }
                 tc.back()(index) = value;
             });
-            loader_.tc(tc);
+            loader_.tc(std::move(tc));
         }
 
         // faces
@@ -513,7 +515,7 @@ private:
     Extractor extractor(const Accessor &accessor) const {
         // TODO: handle bufferView-less accessor
         if (!accessor.bufferView) {
-            LOGTHROW(info4, std::runtime_error)
+            LOGTHROW(err2, std::runtime_error)
                 << "No buffer view present in accessor.";
         }
         const auto &bv(mg_.get<BufferView>(*accessor.bufferView));

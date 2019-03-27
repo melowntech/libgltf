@@ -63,7 +63,9 @@ using Extensions = std::map<std::string, Extension>;
 
 // allocate data on with 4-byte alignment to allow direct data read
 using DataAllocator = boost::alignment::aligned_allocator<std::uint8_t, 4>;
-typedef std::vector<std::uint8_t, DataAllocator> Data;
+using Data = std::vector<std::uint8_t, DataAllocator>;
+
+using DataView = std::pair<Data::const_pointer, Data::const_pointer>;
 
 /** Retuns boost::any set to empty JSON object.
  */
@@ -394,6 +396,10 @@ inline std::size_t elementSize(AttributeType type)
     case AttributeType::mat4: return 16;
     }
     throw std::logic_error("Invalid attribute type");
+}
+
+inline std::size_t size(const DataView &dv) {
+    return dv.second - dv.first;
 }
 
 } // namespace gltf
