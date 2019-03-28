@@ -35,6 +35,7 @@ class MeshLoader {
 public:
     using Face = math::Point3_<unsigned int>;
     using Faces = std::vector<Face>;
+    using DataView = gltf::DataView;
 
     virtual ~MeshLoader();
 
@@ -58,6 +59,22 @@ public:
     /** Image data.
      */
     virtual void image(const DataView &imageData) = 0;
+
+    struct DecodeOptions {
+        /** Initial model transformation. Default to identity.
+         */
+        math::Matrix4 trafo
+        = boost::numeric::ublas::identity_matrix<double>(4, 4);
+
+        /** Scene to decode. Defaults to default model scene.
+         */
+        OptIndex scene;
+
+        /** Flip texture coordinates. Defaults to off (glTF mode, i.e. (0, 0) at
+         *  top-left corner)
+         */
+        bool flipTc = false;
+    };
 };
 
 /** Decode mesh from all scene nodes.
@@ -67,14 +84,14 @@ public:
  *
  * \param loaded mesh loader
  * \param model glTF model
+ * \param trafo toplevel transformation matrix
  * \param scene scene to use, default to default scene
  *
  * Fails if there is no scene to load from.
  */
 void decodeMesh(MeshLoader &loader, const Model &model
-                , const math::Matrix4 &trafo
-                = boost::numeric::ublas::identity_matrix<double>(4, 4)
-                , const OptIndex &scene = boost::none);
+                , const MeshLoader::DecodeOptions &options
+                = MeshLoader::DecodeOptions());
 
 } // namespace gltf
 

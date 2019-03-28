@@ -106,7 +106,6 @@ using TrafoStack = std::stack<math::Matrix4>;
 TrafoStack* applyNodeTrafo(TrafoStack &stack, const Node &node)
 {
     if (node.matrix) {
-        // TODO: check order
         stack.push(prod(stack.top(), *node.matrix));
         return &stack;
     }
@@ -405,12 +404,11 @@ void extractImage(MeshLoader &loader, const ModelGetter &mg, Index index)
 class Decoder {
 public:
     Decoder(MeshLoader &loader, const Model &model
-            , const math::Matrix4 &trafo, const OptIndex &useScene)
-        : loader_(loader), mg_(model)
+            , const MeshLoader::DecodeOptions &options)
+        : loader_(loader), options_(options), mg_(model)
     {
-        trafos_.push(trafo);
-
-        for (const auto nodeId : mg_.getScene(useScene).nodes) {
+        trafos_.push(options_.trafo);
+        for (const auto nodeId : mg_.getScene(options_.scene).nodes) {
             processNode(mg_.get<Node>(nodeId));
         }
     }
@@ -448,9 +446,7 @@ private:
                 vertices.back()(index) = value;
             });
 
-            // apply transformation
             math::transform(trafo(), vertices);
-
             auto size(vertices.size());
             loader_.vertices(std::move(vertices));
             return size;
@@ -470,6 +466,11 @@ private:
                 if (!index) { tc.emplace_back(); }
                 tc.back()(index) = value;
             });
+
+            // flip texture coordinates if asked to
+            if (options_.flipTc) {
+                for (auto &t : tc) { t(1) = 1.0 - t(1); }
+            }
             loader_.tc(std::move(tc));
         }
 
@@ -613,6 +614,7 @@ private:
     const math::Matrix4& trafo() const { return trafos_.top(); }
 
     MeshLoader &loader_;
+    const MeshLoader::DecodeOptions &options_;
     const ModelGetter mg_;
     TrafoStack trafos_;
 };
@@ -620,10 +622,9 @@ private:
 } // namespace
 
 void decodeMesh(MeshLoader &loader, const Model &model
-                , const math::Matrix4 &trafo
-                , const OptIndex &useScene)
+                , const MeshLoader::DecodeOptions &options)
 {
-    Decoder(loader, model, trafo, useScene);
+    Decoder(loader, model, options);
 }
 
 } // namespace gltf
