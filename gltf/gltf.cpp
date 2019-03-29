@@ -28,6 +28,8 @@
 #include <boost/utility/in_place_factory.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
+#include "math/transform.hpp"
+
 #include "utility/base64.hpp"
 #include "utility/uri.hpp"
 #include "utility/streams.hpp"
@@ -42,7 +44,6 @@
 
 namespace fs = boost::filesystem;
 namespace ba = boost::algorithm;
-namespace ublas = boost::numeric::ublas;
 
 namespace gltf {
 
@@ -410,7 +411,7 @@ boost::any emptyObject()
 
 math::Matrix4 zup2yup()
 {
-    math::Matrix4 m(ublas::zero_matrix<double>(4, 4));
+    auto m(math::zero4());
     m(0, 0) = 1.0;
     m(1, 2) = 1.0;
     m(2, 1) = -1.0;
@@ -420,7 +421,7 @@ math::Matrix4 zup2yup()
 
 math::Matrix4 yup2zup()
 {
-    math::Matrix4 m(ublas::zero_matrix<double>(4, 4));
+    auto m(math::zero4());
     m(0, 0) = 1.0;
     m(1, 2) = -1.0;
     m(2, 1) = 1.0;

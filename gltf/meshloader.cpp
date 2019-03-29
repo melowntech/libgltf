@@ -37,7 +37,6 @@
 
 #include "meshloader.hpp"
 
-namespace ublas = boost::numeric::ublas;
 namespace bio = boost::iostreams;
 
 namespace gltf {

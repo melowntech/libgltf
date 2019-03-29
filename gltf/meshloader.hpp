@@ -27,6 +27,8 @@
 #ifndef gltf_meshloader_hpp_included_
 #define gltf_meshloader_hpp_included_
 
+#include "math/transform.hpp"
+
 #include "gltf.hpp"
 
 namespace gltf {
@@ -63,8 +65,7 @@ public:
     struct DecodeOptions {
         /** Initial model transformation. Default to identity.
          */
-        math::Matrix4 trafo
-        = boost::numeric::ublas::identity_matrix<double>(4, 4);
+        math::Matrix4 trafo = math::identity4();
 
         /** Scene to decode. Defaults to default model scene.
          */
