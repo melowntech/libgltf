@@ -41,6 +41,8 @@
 #include "gltf.hpp"
 #include "io.hpp"
 #include "detail.hpp"
+#include "detail/support.hpp"
+#include "v1/parse.hpp"
 
 namespace fs = boost::filesystem;
 namespace ba = boost::algorithm;
@@ -448,26 +450,6 @@ void write(const fs::path &path, const Model &model)
 
 namespace detail {
 
-void common(CommonBase &cb, const Json::Value &value)
-{
-    if (value.isMember("extensions")) {
-        const auto &extensions(value["extensions"]);
-        for (const auto &name : extensions.getMemberNames()) {
-            cb.extensions.insert(Extensions::value_type
-                                 (name, extensions[name]));
-        }
-    }
-    if (value.isMember("extras")) {
-        cb.extras = value["extras"];
-    }
-}
-
-void namedCommon(NamedCommonBase &ncb, const Json::Value &value)
-{
-    common(ncb, value);
-    Json::get(ncb.name, value, "name");
-}
-
 template <typename T>
 void parse(boost::optional<T> &dst, const Json::Value &value
            , const char *member);
@@ -485,45 +467,6 @@ void parse(std::vector<T> &dst, const Json::Value &value
 
 template <typename T>
 void parse(std::vector<T> &dst, const Json::Value &value);
-
-void parse(std::vector<std::string> &list, const Json::Value &value)
-{
-    if (!value.isArray()) {
-        LOGTHROW(err1, Json::Error)
-            << "Expected JSON array.";
-    }
-
-    list.reserve(value.size());
-
-    for (const auto &item : value) {
-        if (!item.isString()) {
-            LOGTHROW(err1, Json::Error)
-                << "Expected JSON array of strings.";
-        }
-        list.push_back(item.asString());
-    }
-}
-
-void parse(Indices &indices, const Json::Value &value)
-{
-    if (value.type() != Json::arrayValue) {
-        LOGTHROW(err1, Json::Error)
-            << "Indices are not an array.";
-    }
-
-    indices.clear();
-    indices.reserve(value.size());
-    for (const auto &item : value) {
-        indices.push_back(item.asInt());
-    }
-}
-
-void parse(Version &version, const Json::Value &value)
-{
-    std::string raw;
-    Json::get(raw, value);
-    version = boost::lexical_cast<Version>(raw);
-}
 
 void parse(Asset &asset, const Json::Value &value)
 {
@@ -582,80 +525,6 @@ void parse(Material &material, const Json::Value &value)
     parse(material.pbrMetallicRoughness, value, "pbrMetallicRoughness");
 }
 
-void parse(ComponentValue &cv, const Json::Value &value)
-{
-    switch (value.type()) {
-    case Json::intValue: case Json::uintValue:
-        cv = value.asInt();
-        break;
-
-    case Json::realValue:
-        cv = value.asDouble();
-        break;
-
-    default:
-        LOGTHROW(err1, Json::Error)
-            << "ComponentValue must be a number.";
-        break;
-    }
-}
-
-void parse(ComponentType &ct, const Json::Value &value)
-{
-    Json::check(value, Json::intValue, "ComponentType must be an integer.");
-    switch ((ct = static_cast<ComponentType>(value.asInt()))) {
-    case ComponentType::byte: case ComponentType::ubyte:
-    case ComponentType::short_: case ComponentType::ushort:
-    case ComponentType::uint: case ComponentType::float_:
-        break;
-
-    default:
-        LOGTHROW(err1, Json::Error)
-            << "Invalid numeric value of ComponentType ("
-            << value.asInt() << ").";
-    }
-}
-
-
-void parse(WrappingMode &wm, const Json::Value &value)
-{
-    Json::check(value, Json::intValue, "WrappingMode must be an integer.");
-    switch ((wm = static_cast<WrappingMode>(value.asInt()))) {
-    case WrappingMode::repeat: case WrappingMode::clamp: break;
-    case WrappingMode::mirrored: break;
-    default:
-        LOGTHROW(err1, Json::Error)
-            << "Invalid numeric value of Target (" << value.asInt() << ").";
-    }
-}
-
-void parse(Target &target, const Json::Value &value)
-{
-    Json::check(value, Json::intValue, "Target must be an integer.");
-    switch ((target = static_cast<Target>(value.asInt()))) {
-    case Target::arrayBuffer: case Target::elementArrayBuffer: break;
-    default:
-        LOGTHROW(err1, Json::Error)
-            << "Invalid numeric value of Target (" << value.asInt() << ").";
-    }
-}
-
-void parse(PrimitiveMode &mode, const Json::Value &value)
-{
-    Json::check(value, Json::intValue, "PromitiveMode must be an integer.");
-    switch ((mode = static_cast<PrimitiveMode>(value.asInt()))) {
-    case PrimitiveMode::points: case PrimitiveMode::lines:
-    case PrimitiveMode::lineLoop:  case PrimitiveMode::lineStrip:
-    case PrimitiveMode::triangles: case PrimitiveMode::triangleStrip:
-    case PrimitiveMode::triangleFan:
-        break;
-    default:
-        LOGTHROW(err1, Json::Error)
-            << "Invalid numeric value of PrimitiveMode ("
-            << value.asInt() << ").";
-    }
-}
-
 void parse(BufferView &bufferView, const Json::Value &value)
 {
     namedCommon(bufferView, value);
@@ -684,49 +553,6 @@ void parse(Accessor &accessor, const Json::Value &value)
     Json::get(accessor.type, value, "type");
     parse(accessor.max, value, "max");
     parse(accessor.min, value, "min");
-}
-
-void parse(math::Matrix4 &matrix, const Json::Value &value)
-{
-    if ((value.type() != Json::arrayValue) || (value.size() != 16)) {
-        LOGTHROW(err1, Json::Error)
-            << "Transformation matrix doesn't have 16 elements (but"
-            << value.size() << ").";
-    }
-
-    // read matrix as a column major order
-    for (int i(0), column(0); column < 4; ++column) {
-        for (int row(0); row < 4; ++row, ++i) {
-            matrix(row, column) = value[i].asDouble();
-        }
-    }
-}
-
-void parse(math::Point3d &point, const Json::Value &value)
-{
-    if ((value.type() != Json::arrayValue) || (value.size() != 3)) {
-        LOGTHROW(err1, Json::Error)
-            << "3D point doesn'tt have 3 elements (but"
-            << value.size() << ").";
-    }
-
-    point(0) = value[0].asDouble();
-    point(1) = value[1].asDouble();
-    point(2) = value[2].asDouble();
-}
-
-void parse(math::Point4d &point, const Json::Value &value)
-{
-    if ((value.type() != Json::arrayValue) || (value.size() != 4)) {
-        LOGTHROW(err1, Json::Error)
-            << "4D point doesn'tt have 4 elements (but"
-            << value.size() << ").";
-    }
-
-    point(0) = value[0].asDouble();
-    point(1) = value[1].asDouble();
-    point(2) = value[2].asDouble();
-    point(3) = value[3].asDouble();
 }
 
 void parse(Node &node, const Json::Value &value)
@@ -937,9 +763,7 @@ void read(Model &model, const Json::Value &content, const fs::path &path
 {
     switch (version) {
     case 1:
-        LOGTHROW(err1, Json::Error)
-            << "Parsing of glTF version 1 not supported (" << path << ").";
-        break;
+        return v1::parse(model, content);
 
     case 2: break;
     default:

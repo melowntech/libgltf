@@ -9,9 +9,11 @@ define_module(LIBRARY gltf=${gltf_VERSION}
 set(gltf_SOURCES
   gltf.hpp gltf.cpp
   detail.hpp
+  detail/support.hpp detail/support.cpp
   glb.cpp
   validate.cpp
   meshloader.hpp meshloader.cpp
+  v1/parse.hpp v1/parse.cpp
 )
 
 add_library(gltf STATIC ${gltf_SOURCES})
