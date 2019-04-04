@@ -368,8 +368,14 @@ void glb(std::ostream &os, const Model &model
          , const boost::filesystem::path &srcDir);
 
 /** Load a model from a GLB file.
+ *
+ * \param is input stream
+ * \param path file path; for logging only
+ * \param magicRead set to true if magic has been already extracted from the
+ *        input stream
  */
-Model glb(std::istream &is, const boost::filesystem::path &path);
+Model glb(std::istream &is, const boost::filesystem::path &path
+          , bool magicRead = false);
 
 /** Deprecated, only for compatibility with older clients.
  */

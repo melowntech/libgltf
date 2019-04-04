@@ -477,7 +477,6 @@ void parse(Asset &asset, const Json::Value &value)
     parse(asset.minVersion, value, "minVersion");
 }
 
-
 void parse(Scene &scene, const Json::Value &value)
 {
     namedCommon(scene, value);

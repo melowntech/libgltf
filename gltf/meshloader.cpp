@@ -89,8 +89,11 @@ struct ModelGetter {
     const Scene& getScene(const OptIndex &useScene) const {
         if (useScene) { return get<Scene>(*useScene); }
         if (model.scene) { return get<Scene>(*model.scene); }
-        LOGTHROW(err1, std::runtime_error) << "No usable scene in glTF model.";
-        throw;
+        if (model.scenes.empty()) {
+            LOGTHROW(err1, std::runtime_error)
+                << "No usable scene in glTF model.";
+        }
+        return model.scenes.front();
     }
 };
 

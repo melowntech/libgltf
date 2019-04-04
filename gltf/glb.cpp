@@ -402,13 +402,17 @@ void glb(std::ostream &os, const Model &srcModel, const fs::path &srcDir)
 namespace detail {
 
 void read(std::istream &is, GlbHeader &header
-          , const boost::filesystem::path &path)
+          , const boost::filesystem::path &path, bool magicRead)
 {
-    char magic[4];
-    bin::read(is, magic);
-    if (std::memcmp(magic, MAGIC, sizeof(MAGIC))) {
-        LOGTHROW(err2, std::runtime_error)
-            << "File " << path << " is not a glTF Model file.";
+    if (!magicRead) {
+        // magic reading and checking is skipped if the caller claims it has
+        // been already read
+        char magic[4];
+        bin::read(is, magic);
+        if (std::memcmp(magic, MAGIC, sizeof(MAGIC))) {
+            LOGTHROW(err2, std::runtime_error)
+                << "File " << path << " is not a glTF Model file.";
+        }
     }
 
     bin::read(is, header.version);
@@ -481,11 +485,11 @@ void glb(const fs::path &path, const Model &srcModel, const fs::path &srcDir)
     os.close();
 }
 
-Model glb(std::istream &is, const fs::path &path)
+Model glb(std::istream &is, const fs::path &path, bool magicRead)
 {
 
     detail::GlbHeader header;
-    detail::read(is, header, path);
+    detail::read(is, header, path, magicRead);
 
     Model model;
     Json::Value content;

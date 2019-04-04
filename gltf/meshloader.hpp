@@ -88,6 +88,9 @@ public:
  * \param trafo toplevel transformation matrix
  * \param scene scene to use, default to default scene
  *
+ * If no scene is provided and there is no default in the model first scene is
+ * used. If there is no scene at all an exception is thrown.
+ *
  * Fails if there is no scene to load from.
  */
 void decodeMesh(MeshLoader &loader, const Model &model
