@@ -177,7 +177,7 @@ void build(Json::Value &value, const BufferView &bufferView)
     namedCommon(value, bufferView);
     build(value["buffer"], bufferView.buffer);
     if (bufferView.byteOffset) {
-        build(value, "byteOffset", bufferView.byteOffset);
+        value["byteOffset"] = Json::UInt64(bufferView.byteOffset);
     }
     build(value["byteLength"], Json::UInt64(bufferView.byteLength));
     build(value, "byteStride", bufferView.byteStride);
