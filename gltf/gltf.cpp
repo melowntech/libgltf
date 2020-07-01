@@ -69,6 +69,12 @@ template <typename T>
 void build(Json::Value &object, const char *name
            , const std::map<std::string, T> &map);
 
+template <>
+void build<std::size_t>(Json::Value& object, const std::size_t& value)
+{
+    object = Json::UInt64(value);
+}
+
 /** Any is expected to be Json::Value instance.
  */
 void build(Json::Value &object, const char *name, const boost::any &value)
@@ -337,12 +343,6 @@ typename std::enable_if<!std::is_enum<T>::value, void>::type
 build(Json::Value &object, const T &value)
 {
     object = value;
-}
-
-template <>
-void build<std::size_t>(Json::Value &object, const std::size_t &value)
-{
-    object = Json::UInt64(value);
 }
 
 template <typename T>
