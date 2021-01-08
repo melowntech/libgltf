@@ -118,6 +118,7 @@ inline bool localPath(const std::string &uri)
     if (ba::starts_with(uri, "http:")) { return false; }
     if (ba::starts_with(uri, "https:")) { return false; }
     if (ba::starts_with(uri, "file:")) { return false; }
+    if (ba::starts_with(uri, ":")) { return false; }
 
     return true;
 }
@@ -126,6 +127,27 @@ inline bool localPath(const OptString &uri)
 {
     if (!uri) { return false; }
     return localPath(*uri);
+}
+
+inline bool dontInline(const std::string &uri)
+{
+    return ba::starts_with(uri, ":");
+}
+
+inline bool dontInline(const OptString &uri)
+{
+    if (!uri) { return false; }
+    return dontInline(*uri);
+}
+
+inline void removeDontInline(std::string &uri) {
+    uri = uri.substr(1);
+}
+
+inline void removeDontInline(OptString &uri)
+{
+    if (!uri) { return; }
+    removeDontInline(*uri);
 }
 
 using FileData = boost::variant<fs::path, const Data*>;
@@ -194,6 +216,11 @@ struct BufferAdder : public boost::static_visitor<void> {
             bufferMapping.emplace_back(ef.files.size(), false);
             ef.files.emplace_back(srcDir / *buffer.uri, offset);
             offset += ef.files.back().size;
+        } else if (dontInline(buffer.uri)) {
+            // whatever path (maybe local) but do not inline
+            auto copy(buffer);
+            removeDontInline(copy.uri);
+            ef.buffers.push_back(copy);
         } else {
             // external
             bufferMapping.emplace_back(ef.buffers.size(), true);
@@ -228,6 +255,11 @@ struct ImageAdder : public boost::static_visitor<void> {
 
             ef.bufferViews.push_back(bv);
             ef.images.push_back(bvi);
+        } else if (dontInline(image.uri)) {
+            // whatever path (maybe local) but do not inline
+            auto copy(image);
+            removeDontInline(copy.uri);
+            ef.images.push_back(copy);
         } else {
             // keep
             ef.images.push_back(image);
