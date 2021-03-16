@@ -62,6 +62,12 @@ public:
      */
     virtual void image(const DataView &imageData) = 0;
 
+    /** External image file.
+     *
+     * Default implementation throws logic_error.
+     */
+    virtual void image(const boost::filesystem::path &path);
+
     struct DecodeOptions {
         /** Initial model transformation. Default to identity.
          */

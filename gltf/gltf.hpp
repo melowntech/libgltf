@@ -34,6 +34,7 @@
 #include <boost/any.hpp>
 #include <boost/optional.hpp>
 #include <boost/variant.hpp>
+#include <boost/filesystem/path.hpp>
 #include <boost/align/aligned_allocator.hpp>
 
 #include "utility/enum-io.hpp"

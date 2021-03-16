@@ -388,9 +388,8 @@ void extractImage(MeshLoader &loader, const ModelGetter &mg, Index index)
             addImage(loader, image.data);
         }
 
-        void operator()(const ExternalImage &) {
-            LOGTHROW(err1, std::runtime_error)
-                << "External image not supported (yet)..";
+        void operator()(const ExternalImage &image) {
+            loader.image(image.uri);
         }
 
         void operator()(const BufferViewImage &image) {
@@ -627,6 +626,13 @@ void decodeMesh(MeshLoader &loader, const Model &model
                 , const MeshLoader::DecodeOptions &options)
 {
     Decoder(loader, model, options);
+}
+
+void MeshLoader::image(const boost::filesystem::path&)
+{
+    LOGTHROW(err2, std::logic_error)
+        << "This gltf::MeshLoader does not support external images."
+        ;
 }
 
 } // namespace gltf
