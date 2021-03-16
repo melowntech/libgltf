@@ -1,5 +1,5 @@
 # bump version here
-set(gltf_VERSION 1.0)
+set(gltf_VERSION 1.1)
 
 define_module(LIBRARY gltf=${gltf_VERSION}
   DEPENDS math>=1.5 utility>=1.26 dbglog>=1.4 imgproc>=1.28 jsoncpp>=2.3
