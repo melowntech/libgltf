@@ -29,6 +29,7 @@
 
 #include <boost/lexical_cast.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/iostreams/stream_buffer.hpp>
 
 #include "dbglog/dbglog.hpp"
 
