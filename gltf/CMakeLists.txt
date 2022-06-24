@@ -2,7 +2,7 @@
 set(gltf_VERSION 1.1)
 
 define_module(LIBRARY gltf=${gltf_VERSION}
-  DEPENDS math>=1.5 utility>=1.26 dbglog>=1.4 imgproc>=1.28 jsoncpp>=2.3
+  DEPENDS math>=1.5 utility>=1.41 dbglog>=1.4 imgproc>=1.28 jsoncpp>=2.3
   Boost_FILESYSTEM Boost_IOSTREAMS
   )
 
@@ -20,4 +20,4 @@ add_library(gltf STATIC ${gltf_SOURCES})
 buildsys_library(gltf)
 
 target_link_libraries(gltf ${MODULE_LIBRARIES})
-buildsys_target_compile_definitions(gltf ${MODULE_DEFINITIONS})
+target_compile_definitions(gltf PRIVATE ${MODULE_DEFINITIONS})
