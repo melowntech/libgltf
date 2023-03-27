@@ -1,8 +1,8 @@
 # bump version here
-set(gltf_VERSION 1.1)
+set(gltf_VERSION 1.2)
 
 define_module(LIBRARY gltf=${gltf_VERSION}
-  DEPENDS math>=1.5 utility>=1.41 dbglog>=1.4 imgproc>=1.28 jsoncpp>=2.3
+  DEPENDS math>=1.5 utility>=1.46 dbglog>=1.4 imgproc>=1.28 jsoncpp>=2.3
   Boost_FILESYSTEM Boost_IOSTREAMS
   )
 

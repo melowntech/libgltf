@@ -33,6 +33,8 @@
 
 #include "dbglog/dbglog.hpp"
 
+#include "utility/gccversion.hpp"
+
 #include "math/transform.hpp"
 
 #include "meshloader.hpp"
@@ -51,10 +53,12 @@ using VertexIndex = std::uint32_t;
 template <typename T> const std::vector<T>& getList(const Model &model);
 template <typename T> const char* typeName();
 
-#define DEDCLARE_TYPE(Type, Name) \
-    template <> const std::vector<Type>&                                \
+#define DEDCLARE_TYPE(Type, Name)                                       \
+    template <> UTILITY_MAYBE_UNUSED                                    \
+    const std::vector<Type>&                                            \
     getList<Type>(const Model &model) { return model.Name; }            \
-    template <> constexpr const char* typeName<Type>() { return #Type; }
+    template <> UTILITY_MAYBE_UNUSED                                    \
+    constexpr const char* typeName<Type>() { return #Type; }
 
 DEDCLARE_TYPE(Scene, scenes)
 DEDCLARE_TYPE(Node, nodes)
